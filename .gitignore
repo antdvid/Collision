@@ -1,0 +1,7 @@
+# excutable file
+collid3d
+*.o
+out-*
+tags
+
+

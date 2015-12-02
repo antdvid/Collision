@@ -38,7 +38,7 @@ int main(int argc, char** argv)
         FT_InitIntfc(&front,&level_func_pack);
 	double center[MAXD];        // Center of the sphere
         double R[MAXD];
-  	center[0] = center[1] = center[2] = 0.4;
+  	center[0] = center[1] = center[2] = 0.30;
             R[0] = R[1] = R[2] = 0.05;	
 	FT_MakeEllipticSurf(&front,center,R,
                         1,2,    // negative and positive components
@@ -55,7 +55,7 @@ int main(int argc, char** argv)
 			(POINTER)trans_params,
 			translation_vel);
 
-	center[0] = center[1] = center[2] = 0.1;
+	center[0] = center[1] = center[2] = 0.20;
             R[0] = R[1] = R[2] = 0.05;
         FT_MakeEllipticSurf(&front,center,R,
                         1,2,    // negative and positive components
@@ -78,33 +78,26 @@ int main(int argc, char** argv)
 
 	propagation_driver(&front);
 	clean_up(0);
-	//collision detect and handling
-	/*
-	std::vector<std::pair<TRI*,TRI*> > triPairList;
-	CollisionSolver *collision_solver = new CollisionSolver3d();
-	collision_solver->setRoundingTolerance(0.000001);
-	collision_solver->assembleFromInterface(front.interf);
-	collision_solver->detectProximity();
-	collision_solver->printProximity();
-	char dname[256];
-	sprintf(dname,"%s/intfc",OutName(&front));
-	collision_solver->gviewplotPairList(dname);
-	collision_solver->gviewplotPair(dname);
-	geomview_interface_plot(dname,front.interf,front.rect_grid);
-	clean_up(0);*/
 }
 
 static  void propagation_driver(
         Front *front)
 {
         double CFL;
+	std::vector<std::pair<TRI*,TRI*> > triPairList;
+	CollisionSolver *collision_solver = new CollisionSolver3d();
+
+	//collision_solver->setRoundingTolerance(0.1);
+	collision_solver->setFabricThickness(0.1);
+
         front->max_time = 5;
-        front->max_step = 1000;
+        front->max_step = 100;
         front->print_time_interval = 0.5;
-        front->movie_frame_interval = 0.1;
+        front->movie_frame_interval = 0.01;
 
         CFL = Time_step_factor(front) = 0.75;
 
+	Frequency_of_redistribution(front,GENERAL_WAVE) = 100000;
         printf("CFL = %f\n",CFL);
         printf("Frequency_of_redistribution(front,GENERAL_WAVE) = %d\n",
                 Frequency_of_redistribution(front,GENERAL_WAVE));
@@ -135,6 +128,16 @@ static  void propagation_driver(
         for (;;)
         {
             /* Propagating interface for time step dt */
+	    //collision detect and handling
+	    triPairList.clear();
+	    collision_solver->assembleFromInterface(front->interf);
+	    collision_solver->detectProximity();
+	    collision_solver->printProximity();
+	    char dname[256];
+	    sprintf(dname,"%s/intfc",OutName(front));
+	    collision_solver->gviewplotPairList(dname);
+	    collision_solver->gviewplotPair(dname);
+	    geomview_interface_plot(dname,front->interf,front->rect_grid);
 
             FT_Propagate(front);
             FT_AddTimeStepToCounter(front);
@@ -159,5 +162,6 @@ static  void propagation_driver(
 
             FT_TimeControlFilter(front);
         }
+	delete collision_solver;
 }       /* end propagation_driver */
 

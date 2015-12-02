@@ -8,12 +8,10 @@
 
 static bool trisIntersect(const TRI* a, const TRI* b);
 static bool TriToTri(const TRI* tri1, const TRI* tri2, double h);
-static bool PointToTri(const POINT* pt, const TRI* tri, double h);
+static bool PointToTri(POINT** pts, double h);
 static bool EdgeToEdge(POINT** pts, double h);
-static void PointToTriUpdateVel(POINT* pt, TRI* tri, double* nor, double* w);
-static double PointToTriImpulse(POINT* pt, TRI* tri, double* nor, double* w);
-static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b);
-static double EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b);
+static void PointToTriUpdateVel(POINT** pts, double* nor, double* w, double dist);
+static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b, double dist);
 
 static bool TriPairToTriPair(const TRI_PAIR& a,const TRI_PAIR &b);
 
@@ -272,7 +270,7 @@ void CollisionSolver3d::gviewplotPairList(const char *dname)
 	double *BBL = topological_grid(tris[0]->surf->interface).GL;
         double *BBU = topological_grid(tris[0]->surf->interface).GU;
 	gview_bounding_box(file,BBL,BBU,1,indent);
-	(void) fprintf(file,"%s{\n%s%sOFF\n%s%s%6ld %6ld %6d\n",
+	(void) fprintf(file,"%s{\n%s%sOFF\n%s%s%lu %lu %d\n",
 			indent,indent,indent,
 			indent,indent,3*num_tris,num_tris,0);
 	for (i = 0; i < num_tris; ++i)
@@ -312,7 +310,8 @@ extern bool doIntersect(const TRI_PAIR& a, const TRI_PAIR& b){
 extern bool doIntersect(const TRI* a, const TRI* b){
 	if (a->surf == b->surf &&
   	    (wave_type(Hyper_surf(a->surf)) == NEUMANN_BOUNDARY ||
-  	    wave_type(Hyper_surf(a->surf)) == MOVABLE_BODY_BOUNDARY))
+  	    wave_type(Hyper_surf(a->surf)) == MOVABLE_BODY_BOUNDARY ||
+	    wave_type(Hyper_surf(a->surf)) == FIRST_PHYSICS_WAVE_TYPE))
 		return false;
 	for (int i = 0; i < 3; ++i)
 	for (int j = 0; j < 3; ++j)
@@ -334,10 +333,18 @@ static bool TriPairToTriPair(const TRI_PAIR& a,const TRI_PAIR &b)
 //helper function to detect intersection or proximity between geometries
 static bool TriToTri(const TRI* tri1, const TRI* tri2, double h){
 	POINT* pts[4];
-	for (int i = 0; i < 3; ++i){
-	    if (PointToTri(tri1->__pts[i],tri2,h) ||
-	        PointToTri(tri2->__pts[i],tri1,h))
-                    return true;
+	for (int i = 0; i < 3; ++i)
+	{
+	    for (int j = 0; j < 3; ++j)
+		pts[j] = tri2->__pts[j];
+	    pts[3] = tri1->__pts[i];
+	    if (PointToTri(pts,h))
+		return true;
+	    for (int j = 0; j < 3; ++j)
+                pts[j] = tri1->__pts[j];
+            pts[3] = tri2->__pts[i];
+	    if(PointToTri(pts,h))
+                return true;
 	}
 	for (int i = 0; i < 3; ++i)
 	{
@@ -346,7 +353,8 @@ static bool TriToTri(const TRI* tri1, const TRI* tri2, double h){
 	    for (int j = 0; j < 3; ++j){
 		pts[2] = tri2->__pts[j];
 		pts[3] = tri2->__pts[(j+1)%3];
-	  	if (EdgeToEdge(pts, h)) return true;
+	  	if (EdgeToEdge(pts, h))
+		    return true;
 	    }  
 	}
 	return false;
@@ -366,6 +374,7 @@ static bool EdgeToEdge(POINT** pts, double h)
 	double a, b;
 	double tmp[3];
 	double v1[3],v2[3];
+	double nor[3], nor_mag, dist;
 
 	Pts2Vec(pts[0],pts[1],x21);	    
 	Pts2Vec(pts[2],pts[3],x43);
@@ -383,12 +392,19 @@ static bool EdgeToEdge(POINT** pts, double h)
 	scalarMult(a,x21,v1);
 	scalarMult(b,x43,v2);
 	addVec(x31,v2,v2);
-	if (distBetweenCoords(v1,v2) > 0.1 * h)
+	for (int i = 0; i < 3; ++i)
+	    nor[i] = v1[i] - v2[i];
+	nor_mag = Mag3d(nor);
+	for (int i = 0; i < 3; ++i)
+	    nor[i] /= nor_mag;
+	dist = distBetweenCoords(v1,v2);
+	if (dist > 0.1 * h)
 	    return false;
+	EdgeToEdgeUpdateVel(pts, nor, a, b, dist);
 	return true;
 }
 
-static bool PointToTri(const POINT* pt, const TRI* tri, double h)
+static bool PointToTri(POINT** pts, double h)
 {
 /*	x1
  *  	/\     x4 *
@@ -399,79 +415,118 @@ static bool PointToTri(const POINT* pt, const TRI* tri, double h)
  * x13*x13*w1 + x13*x23*w2 = x13*x43
  * x13*x23*w1 + x23*x23*w2 = x23*x43
  */
-	double w[3], x[3];
-	double nor[3], nor_mag;
-	for (int i = 0; i < 3; ++i)
-        	nor[i] = Tri_normal(tri)[i];
-        nor_mag = Mag3d(nor);
-	for (int i = 0; i < 3; ++i)
-		nor[i] /= nor_mag;
-	
-        for (int i = 0; i < 3; ++i)
-                x[i] = Coords(pt)[i]-Coords(tri->__pts[0])[i];
-        if (fabs(Dot3d(x,nor)) > h)
-            return false;
-
+	double w[3];
 	double x13[3], x23[3], x43[3];
-	Pts2Vec(tri->__pts[0],tri->__pts[2],x13);
-	Pts2Vec(tri->__pts[1],tri->__pts[2],x23);
-	Pts2Vec(pt,tri->__pts[2],x43);
+	double v1[3], v2[3];
+	double nor[3], nor_mag, dist;
+
+	Pts2Vec(pts[0],pts[2],x13);
+	Pts2Vec(pts[1],pts[2],x23);
+	Pts2Vec(pts[3],pts[2],x43);
+	Cross3d(x13, x23, nor);
+	nor_mag = Mag3d(nor);
+	for (int i = 0; i < 3; ++i)
+	    nor[i] /= nor_mag;
+	if (fabs(Dot3d(x43, nor)) > 0.1 * h)
+	    return false;
+
 	w[0] = (Dot3d(x13,x43)*Dot3d(x23,x23)-Dot3d(x23,x43)*Dot3d(x13,x23))/
                (Dot3d(x13,x13)*Dot3d(x23,x23)-Dot3d(x13,x23)*Dot3d(x13,x23));
 	w[1] = (Dot3d(x13,x13)*Dot3d(x23,x43)-Dot3d(x13,x23)*Dot3d(x13,x43))/
 	       (Dot3d(x13,x13)*Dot3d(x23,x23)-Dot3d(x13,x23)*Dot3d(x13,x23));
 	w[2] = 1 - w[0] - w[1];
+	for (int i = 0; i < 3; ++i)
+	{
+	    v1[i] = Coords(pts[3])[i];
+	    v2[i] = 0.0;
+	    for (int j = 0; j < 3; ++j)
+		v2[i] += w[j] * Coords(pts[j])[i];
+	}
+	dist = distBetweenCoords(v1,v2);
 	
-	double clength = std::sqrt(tri_area(tri));
+//	double clength = std::sqrt(tri_area(tri));
 	for (int i = 0; i < 3; ++i)
 	{
 	    if (w[i] > 1+h || w[i] < -h) //h should be h/clength, clength is too small 
 		return false;
 	}
+	PointToTriUpdateVel(pts, nor, w, dist);
 	return true;
 }
 
 /* repulsion and friction functions, update velocity functions */
-static void PointToTriUpdateVel(POINT* pt, TRI* tri, double* nor, double* w)
+static void PointToTriUpdateVel(POINT** pts, double* nor, double* w, double dist)
 {
-	double impulse = 0.0, m_impulse = 0.0;
+	std::cout << "In PointToTirUpdateVel()" << std::endl;
+	std::cout << "pts[3] before vel " << pts[3]->vel[0] << " " 
+		  << pts[3]->vel[1] << " " 
+		  << pts[3]->vel[2] << std::endl;
+	std::cout << "sorted(pts[3]) = " << sorted(pts[3]) << std::endl;
 
-	impulse = PointToTriImpulse(pt, tri, nor, w);
+	double v_rel[3] = {0.0}, vn = 0.0;
+	double impulse = 0.0, m_impulse = 0.0;
+	double k = 50000, m = 0.01, dt = 0.01;
+
+	/* it is supposed to use the average velocity*/
+	for (int i = 0; i < 3; ++i)
+	{
+	    for (int j = 0; j < 3; ++j)
+		v_rel[i] += w[j] * pts[j]->vel[i];
+	    v_rel[i] -= pts[3]->vel[i];
+	}
+	std::cout << "v_rel = " << v_rel[0] << " " 
+		  << v_rel[1] << " " << v_rel[2] << std::endl;
+	vn = Dot3d(v_rel, nor);
+	if (vn < 0.0)
+	    impulse += vn * 0.5;
+	if (vn * dt < 0.1 * dist)
+	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
-	/* it is supposed to modify the average velocity*/
-	for (int i = 0; i < 3; ++i)
-	{
-	    if (sorted(tri->__pts[i])) continue;
-	    for (int j = 0; j < 3; ++j)
-		tri->__pts[i]->vel[j] += w[i] * m_impulse * nor[j];
-	}
-	if (!sorted(pt))
-	{
-	    for (int j = 0; j < 3; ++j)
-		pt->vel[j] -= m_impulse * nor[j];
-	}
-}
-
-static double PointToTriImpulse(POINT* pt, TRI* tri, double* nor, double* w)
-{
-	double v_rel[3] = {0.0};
 
 	/* it is supposed to modify the average velocity*/
 	for (int i = 0; i < 3; ++i)
 	{
+	    if (sorted(pts[i])) continue;
 	    for (int j = 0; j < 3; ++j)
-		v_rel[i] += w[j] * tri->__pts[j]->vel[i];
-	    v_rel[i] -= pt->vel[i];
+		pts[i]->vel[j] += w[i] * m_impulse * nor[j];
 	}
-	return 0.0;
+	if (!sorted(pts[3]))
+	{
+	    for (int j = 0; j < 3; ++j)
+		pts[3]->vel[j] -= m_impulse * nor[j];
+	}
+	for (int i = 0; i < 4; ++i)
+	    sorted(pts[i]) = YES;
+	std::cout << "pts[3] after vel " << pts[3]->vel[0] << " " 
+		  << pts[3]->vel[1] << " " 
+		  << pts[3]->vel[2] << "\n" << std::endl;
 }
 
-static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b)
+static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b, double dist)
 {
+	std::cout << "In EdgeToEdgeUpdateVel()" << std::endl;
+	std::cout << "pts[3] before vel " << pts[3]->vel[0] << " "
+                  << pts[3]->vel[1] << " "
+                  << pts[3]->vel[2] << std::endl;
+        std::cout << "sorted(pts[3]) = " << sorted(pts[3]) << std::endl;
+
+	double v_rel[3] = {0.0}, vn = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
+	double k = 50000, m = 0.01, dt = 0.01;
 
-	impulse = EdgeToEdgeImpulse(pts, nor, a, b);
+	/* it is supposed to use the average velocity*/
+	for (int i = 0; i < 3; ++i)
+	{
+	    v_rel[i] += (1.0-a) * pts[0]->vel[i] + a * pts[1]->vel[i];
+	    v_rel[i] -= (1.0-b) * pts[2]->vel[i] + b * pts[3]->vel[i];
+	}
+	vn = Dot3d(v_rel, nor);
+	if (vn < 0.0)
+	    impulse += vn * 0.5;
+	if (vn * dt < 0.1 * dist)
+	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
+
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
 	{
@@ -484,11 +539,11 @@ static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b)
 	    if (!sorted(pts[3]))
 		pts[3]->vel[j] -= b * m_impulse * nor[j];
 	}
-}
-
-static double EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b)
-{
-	return 0.0;
+	for (int i = 0; i < 4; ++i)
+	    sorted(pts[i]) = YES;
+	std::cout << "pts[3] after vel " << pts[3]->vel[0] << " "
+                  << pts[3]->vel[1] << " "
+                  << pts[3]->vel[2] << "\n" << std::endl;
 }
 
 /* Function from CGAL libary, not used anymore */

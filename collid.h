@@ -119,6 +119,8 @@ private:
 	//rounding tolerance
 	static double eps;
 	static double thickness;
+protected:
+	Front *front;
 public:
 	static void setRoundingTolerance(double);
 	static double getRoundingTolerance();
