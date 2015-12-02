@@ -1,7 +1,30 @@
-# excutable file
-collid3d
+# Compiled Object files
+*.slo
+*.lo
 *.o
-out-*
+*.obj
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Fortran module files
+*.mod
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+collid3d
 tags
-
-
