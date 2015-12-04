@@ -65,6 +65,7 @@ void CollisionSolver3d::assembleFromInterface(
 	SURFACE** s;
 	TRI *tri;
 	trisList.clear();
+	triPairList.clear();
 	intfc_surface_loop(intfc,s)
 	{
 	    if (is_bdry(*s)) continue;
@@ -83,6 +84,7 @@ void CollisionSolver3d::assembleFromTwoInterface(
 	TRI *oldTri, *newTri;
 
 	triPairList.clear();
+	triTwoPairList.clear();
 	for ((oldS) = (oldIntfc)->surfaces, 
 	     (newS) = (newIntfc)->surfaces; 
 	     (oldS) && *(oldS) &&
