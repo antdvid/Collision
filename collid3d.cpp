@@ -8,6 +8,11 @@ char *restart_name;
 boolean RestartRun;
 int RestartStep;
 static void propagation_driver(Front*);
+static void collision_point_propagate(Front*,POINTER,POINT*,
+        			      POINT *newp,HYPER_SURF_ELEMENT *,
+        			      HYPER_SURF*,double,double*);
+static void initSurfaceState(SURFACE*,const double*);
+
 
 int main(int argc, char** argv)
 {
@@ -26,7 +31,7 @@ int main(int argc, char** argv)
         f_basic.boundary[0][0] = f_basic.boundary[0][1] = DIRICHLET_BOUNDARY;
         f_basic.boundary[1][0] = f_basic.boundary[1][1] = DIRICHLET_BOUNDARY;
         f_basic.boundary[2][0] = f_basic.boundary[2][1] = DIRICHLET_BOUNDARY;
-        f_basic.size_of_intfc_state = 0;
+        f_basic.size_of_intfc_state = sizeof(STATE);
 	FT_StartUp(&front,&f_basic);
 	level_func_pack.pos_component = 2;
 	
@@ -45,15 +50,10 @@ int main(int argc, char** argv)
                         FIRST_PHYSICS_WAVE_TYPE,
                         1,      // refinement level
                         &surf);
+
+	const double vel1[] = {-0.1,-0.1,-0.1};
 	//initialize velocity function to straight_velocity
-	TRANS_PARAMS* trans_params = new TRANS_PARAMS[2];
-	trans_params[0].dim = 3;
-	trans_params[0].vel[0] = trans_params[0].vel[1] 
-			       = trans_params[0].vel[2] = -0.1;
-	FT_InitSurfVeloFunc(surf,
-			"trans_velocity",
-			(POINTER)trans_params,
-			translation_vel);
+	initSurfaceState(surf,vel1);
 
 	center[0] = center[1] = center[2] = 0.20;
             R[0] = R[1] = R[2] = 0.05;
@@ -62,16 +62,13 @@ int main(int argc, char** argv)
                         FIRST_PHYSICS_WAVE_TYPE,
                         1,      // refinement level
                         &surf);
-	//initialize velocity function to zero_velocity
-	trans_params[1].dim = 3;
-	trans_params[1].vel[0] = trans_params[1].vel[1] 
-			       = trans_params[1].vel[2] = 0.0;
-	FT_InitSurfVeloFunc(surf,
-			"no_velocity",
-			trans_params+1,
-			translation_vel);
+
+	const double vel2[] = {-0.1,-0.1,-0.1};
+	initSurfaceState(surf,vel2);
+
 	front.vfunc = NULL;
-	PointPropagationFunction(&front) = fourth_order_point_propagate;
+	//PointPropagationFunction(&front) = fourth_order_point_propagate;
+	PointPropagationFunction(&front) = collision_point_propagate;
 	char dname[256];
 	sprintf(dname,"%s/intfc",OutName(&front));
 	geomview_interface_plot(dname,front.interf,front.rect_grid);
@@ -96,6 +93,7 @@ static  void propagation_driver(
         front->movie_frame_interval = 0.01;
 
         CFL = Time_step_factor(front) = 0.75;
+	Tracking_algorithm(front) = STRUCTURE_TRACKING;
 
 	Frequency_of_redistribution(front,GENERAL_WAVE) = 100000;
         printf("CFL = %f\n",CFL);
@@ -164,4 +162,64 @@ static  void propagation_driver(
         }
 	delete collision_solver;
 }       /* end propagation_driver */
+
+static void initSurfaceState(
+	SURFACE* surf,
+	const double* vel)
+{
+	TRI* tri;
+	POINT* p;
+	STATE* sl, *sr;
+	surf_tri_loop(surf,tri){
+	    for (int i = 0; i < 3; ++i){
+		p = Point_of_tri(tri)[i];
+		sl = (STATE*)left_state(p);
+        	sr = (STATE*)right_state(p);
+		for (int j = 0; j < 3; ++j){
+		    sl->vel[j] = sr->vel[j] = vel[j];
+		}
+	    }
+	}
+}
+
+static void collision_point_propagate(
+        Front *front,
+        POINTER wave,
+        POINT *oldp,
+        POINT *newp,
+        HYPER_SURF_ELEMENT *oldhse,
+        HYPER_SURF         *oldhs,
+        double              dt,
+        double              *V)
+{
+        double vel[MAXD],s;
+        int i, dim = front->rect_grid->dim;
+
+        if (wave_type(oldhs) < MOVABLE_BODY_BOUNDARY)
+        {
+            for (i = 0; i < dim; ++i)
+            {
+                Coords(newp)[i] = Coords(oldp)[i];
+            }
+            return;
+        }
+
+	STATE *newsl,*newsr;
+        STATE *sl,*sr;
+	sl = (STATE*)left_state(oldp);
+        sr = (STATE*)right_state(oldp);
+        newsl = (STATE*)left_state(newp);
+        newsr = (STATE*)right_state(newp);
+
+	for (i = 0; i < dim; ++i)
+	    vel[i] = sl->vel[i];
+
+	for (i = 0; i < dim; ++i)
+	{
+	    newsl->vel[i] = newsr->vel[i] = vel[i];
+            Coords(newp)[i] = Coords(oldp)[i] + dt*vel[i];
+	}
+        s = mag_vector(V,dim);
+        set_max_front_speed(dim,s,NULL,Coords(newp),front);
+}       /* fourth_order_point_propagate */
 
