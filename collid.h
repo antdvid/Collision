@@ -8,7 +8,9 @@ typedef std::pair<BOND*,BOND*> BOND_PAIR;
 struct STATE{
 	double vel[3];
 	double impulse[3];
+	double friction[3];
 	double avgVel[3];
+	int collsn_num;
 };
 //box traits structure for FronTier triangles
 template<typename T> struct Traits_of_FT

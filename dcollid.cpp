@@ -10,8 +10,9 @@ static bool trisIntersect(const TRI* a, const TRI* b);
 static bool TriToTri(const TRI* tri1, const TRI* tri2, double h);
 static bool PointToTri(POINT** pts, double h);
 static bool EdgeToEdge(POINT** pts, double h);
-static void PointToTriUpdateVel(POINT** pts, double* nor, double* w, double dist);
-static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b, double dist);
+static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
+static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
+static void UpdateVel(std::vector<TRI_PAIR>);
 
 static bool TriPairToTriPair(const TRI_PAIR& a,const TRI_PAIR &b);
 
@@ -152,6 +153,7 @@ void CollisionSolver3d::detectProximity()
 {
 	CGAL::box_self_intersection_d(trisList.begin(),trisList.end(),
                                      Report<TRI*>(triPairList),Traits_of_FT<TRI*>());
+	UpdateVel(triPairList);
 }
 
 void CollisionSolver3d::detectCollision()
@@ -402,7 +404,7 @@ static bool EdgeToEdge(POINT** pts, double h)
 	dist = distBetweenCoords(v1,v2);
 	if (dist > 0.1 * h)
 	    return false;
-	EdgeToEdgeUpdateVel(pts, nor, a, b, dist);
+	EdgeToEdgeImpulse(pts, nor, a, b, dist);
 	return true;
 }
 
@@ -452,100 +454,186 @@ static bool PointToTri(POINT** pts, double h)
 	    if (w[i] > 1+h || w[i] < -h) //h should be h/clength, clength is too small 
 		return false;
 	}
-	PointToTriUpdateVel(pts, nor, w, dist);
+	PointToTriImpulse(pts, nor, w, dist);
 	return true;
 }
 
 /* repulsion and friction functions, update velocity functions */
-static void PointToTriUpdateVel(POINT** pts, double* nor, double* w, double dist)
+static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 {
+	STATE *sl[4], *sr[4];
+	for (int i = 0; i < 4; ++i)
+	{
+	    sl[i] = (STATE*)left_state(pts[i]);
+	    sr[i] = (STATE*)right_state(pts[i]);
+	}
 	std::cout << "In PointToTirUpdateVel()" << std::endl;
-	std::cout << "pts[3] before vel " << pts[3]->vel[0] << " " 
-		  << pts[3]->vel[1] << " " 
-		  << pts[3]->vel[2] << std::endl;
-	std::cout << "sorted(pts[3]) = " << sorted(pts[3]) << std::endl;
 
-	double v_rel[3] = {0.0}, vn = 0.0;
+	double v_rel[3] = {0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 50000, m = 0.01, dt = 0.01;
+	double k = 500, m = 0.01, dt = 0.01, lambda = 0.02;;
 
 	/* it is supposed to use the average velocity*/
 	for (int i = 0; i < 3; ++i)
 	{
 	    for (int j = 0; j < 3; ++j)
-		v_rel[i] += w[j] * pts[j]->vel[i];
-	    v_rel[i] -= pts[3]->vel[i];
+		v_rel[i] += w[j] * sl[j]->vel[i];
+	    v_rel[i] -= sl[3]->vel[i];
 	}
 	std::cout << "v_rel = " << v_rel[0] << " " 
 		  << v_rel[1] << " " << v_rel[2] << std::endl;
-	vn = Dot3d(v_rel, nor);
-	if (vn < 0.0)
-	    impulse += vn * 0.5;
+	vn = -Dot3d(v_rel, nor);
+	vt = sqrt(Dot3d(v_rel, v_rel) - sqr(vn));
+	impulse += vn * 0.5;
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
+	std::cout << "impulse = " << impulse << std::endl;
+        std::cout << "m_impulse = " << m_impulse << std::endl;
 
 	/* it is supposed to modify the average velocity*/
 	for (int i = 0; i < 3; ++i)
 	{
-	    if (sorted(pts[i])) continue;
-	    for (int j = 0; j < 3; ++j)
-		pts[i]->vel[j] += w[i] * m_impulse * nor[j];
+	    for(int j = 0; j < 3; ++j)
+	    {
+		sl[i]->impulse[j] += w[i] * m_impulse * nor[j];
+		if (fabs(vt) > 1.0e-10)
+		    sl[i]->friction[j] += std::max(-fabs(lambda * w[i] * 
+			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+		sl[i]->collsn_num += 1;
+		sr[i]->impulse[j] = sl[i]->impulse[j];
+		sr[i]->friction[j] = sl[i]->friction[j];
+		sr[i]->collsn_num = sl[i]->collsn_num;
+	    }
 	}
-	if (!sorted(pts[3]))
+	for (int j = 0; j < 3; ++j)
 	{
-	    for (int j = 0; j < 3; ++j)
-		pts[3]->vel[j] -= m_impulse * nor[j];
+	    sl[3]->impulse[j] -= m_impulse * nor[j];
+	    if (fabs(vt) > 1.0e-10)
+	        sl[3]->friction[j] += std::max(-fabs(lambda * 
+			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    sl[3]->collsn_num += 1;
+	    sr[3]->impulse[j] = sl[3]->impulse[j];
+	    sr[3]->friction[j] = sl[3]->friction[j];
+	    sr[3]->collsn_num = sl[3]->collsn_num;
 	}
-	for (int i = 0; i < 4; ++i)
-	    sorted(pts[i]) = YES;
-	std::cout << "pts[3] after vel " << pts[3]->vel[0] << " " 
-		  << pts[3]->vel[1] << " " 
-		  << pts[3]->vel[2] << "\n" << std::endl;
 }
 
-static void EdgeToEdgeUpdateVel(POINT** pts, double* nor, double a, double b, double dist)
+static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist)
 {
+	STATE *sl[4], *sr[4];
+	for (int i = 0; i < 4; ++i)
+	{
+	    sl[i] = (STATE*)left_state(pts[i]);
+	    sr[i] = (STATE*)right_state(pts[i]);
+	}
 	std::cout << "In EdgeToEdgeUpdateVel()" << std::endl;
-	std::cout << "pts[3] before vel " << pts[3]->vel[0] << " "
-                  << pts[3]->vel[1] << " "
-                  << pts[3]->vel[2] << std::endl;
-        std::cout << "sorted(pts[3]) = " << sorted(pts[3]) << std::endl;
 
-	double v_rel[3] = {0.0}, vn = 0.0;
+	double v_rel[3] = {0.0, 0.0, 0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 50000, m = 0.01, dt = 0.01;
+	double k = 500, m = 0.01, dt = 0.01, lambda = 0.02;
 
 	/* it is supposed to use the average velocity*/
-	for (int i = 0; i < 3; ++i)
+	for (int j = 0; j < 3; ++j)
 	{
-	    v_rel[i] += (1.0-a) * pts[0]->vel[i] + a * pts[1]->vel[i];
-	    v_rel[i] -= (1.0-b) * pts[2]->vel[i] + b * pts[3]->vel[i];
+	    v_rel[j] += (1.0-a) * sl[0]->vel[j] + a * sl[1]->vel[j];
+	    v_rel[j] -= (1.0-b) * sl[2]->vel[j] + b * sl[3]->vel[j];
 	}
-	vn = Dot3d(v_rel, nor);
-	if (vn < 0.0)
-	    impulse += vn * 0.5;
+	std::cout << "v_rel = " << v_rel[0] << " " 
+		  << v_rel[1] << " " << v_rel[2] << std::endl;
+	vn = -Dot3d(v_rel, nor);
+	vt = sqrt(Dot3d(v_rel, v_rel) - sqr(vn));
+	impulse += vn * 0.5;
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
+	std::cout << "impulse = " << impulse << std::endl; 
+        std::cout << "m_impulse = " << m_impulse << std::endl;
 
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
 	{
-	    if (!sorted(pts[0]))
-		pts[0]->vel[j] += (1.0 - a) * m_impulse * nor[j];
-	    if (!sorted(pts[1]))
-		pts[1]->vel[j] += a * m_impulse * nor[j];
-	    if (!sorted(pts[2]))
-		pts[2]->vel[j] -= (1.0 - b) * m_impulse * nor[j];
-	    if (!sorted(pts[3]))
-		pts[3]->vel[j] -= b * m_impulse * nor[j];
+	    sl[0]->impulse[j] += (1.0 - a) * m_impulse * nor[j];
+	    if (fabs(vt) > 1.0e-10)
+	        sl[0]->friction[j] += std::max(-fabs(lambda * (1.0-a) *
+			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    sl[0]->collsn_num += 1;
+	    sl[1]->impulse[j] += a * m_impulse * nor[j];
+	    if (fabs(vt) > 1.0e-10)
+	        sl[1]->friction[j] += std::max(-fabs(lambda * a * 
+			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    sl[1]->collsn_num += 1;
+	    sl[2]->impulse[j] -= (1.0 - b) * m_impulse * nor[j];
+	    if (fabs(vt) > 1.0e-10)
+	        sl[2]->friction[j] += std::max(-fabs(lambda * (1.0 - b) *
+			m_impulse/vt), -1.0)*(v_rel[j] - vn * nor[j]);
+	    sl[2]->collsn_num += 1;
+	    sl[3]->impulse[j] -= b * m_impulse * nor[j];
+	    if (fabs(vt) > 1.0e-10)
+	        sl[3]->friction[j] += std::max(-fabs(lambda * b * 
+			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    sl[3]->collsn_num += 1;
 	}
 	for (int i = 0; i < 4; ++i)
-	    sorted(pts[i]) = YES;
-	std::cout << "pts[3] after vel " << pts[3]->vel[0] << " "
-                  << pts[3]->vel[1] << " "
-                  << pts[3]->vel[2] << "\n" << std::endl;
+	{
+	    for (int j = 0; j < 3; ++j)
+	    {
+		sr[i]->impulse[j] = sl[i]->impulse[j];
+		sr[i]->friction[j] = sl[i]->friction[j];
+	    }
+	    sr[i]->collsn_num = sl[i]->collsn_num;
+	}
+}
+
+static void UpdateVel(std::vector<TRI_PAIR> triPairList)
+{
+	POINT *p;
+	STATE *sl, *sr;
+	int n = triPairList.size();
+	for (int i = 0; i < n; ++i)
+	{
+	    for (int j = 0; j < 3; ++j)
+	    {
+		p = Point_of_tri(triPairList[i].first)[j];
+		if (sorted(p)) continue;
+		sl = (STATE*)left_state(p);
+		sr = (STATE*)right_state(p);
+		if (sl->collsn_num > 0)
+		{
+		    printf("%d %f %f %f \n", sl->collsn_num,
+			sl->friction[0]/sl->collsn_num,
+			sl->friction[1]/sl->collsn_num,
+			sl->friction[2]/sl->collsn_num);
+		    for (int k = 0; k < 3; ++k)
+		    {
+			sl->vel[k] += (sl->impulse[k] + sl->friction[k])
+					/sl->collsn_num;
+			sr->vel[k] = sl->vel[k];
+		    }
+		}
+		sorted(p) = YES;
+	    }
+	    for (int j = 0; j < 3; ++j)
+	    {
+		p = Point_of_tri(triPairList[i].second)[j];
+		if (sorted(p)) continue;
+		sl = (STATE*)left_state(p);
+		sr = (STATE*)right_state(p);
+		if (sl->collsn_num > 0)
+		{
+		    printf("%d %f %f %f \n", sl->collsn_num,
+			sl->friction[0]/sl->collsn_num,
+			sl->friction[1]/sl->collsn_num,
+			sl->friction[2]/sl->collsn_num);
+		    for (int k = 0; k < 3; ++k)
+		    {
+			sl->vel[k] += sl->impulse[k]/sl->collsn_num;
+			sr->vel[k] = sl->vel[k];
+		    }
+		}
+		sorted(p) = YES;
+	    }
+	}
 }
 
 /* Function from CGAL libary, not used anymore */

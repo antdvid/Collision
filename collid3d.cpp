@@ -51,7 +51,7 @@ int main(int argc, char** argv)
                         1,      // refinement level
                         &surf);
 
-	const double vel1[] = {-0.1,-0.1,-0.1};
+	const double vel1[] = {-0.2,-0.2,-0.2};
 	//initialize velocity function to straight_velocity
 	initSurfaceState(surf,vel1);
 
@@ -63,7 +63,7 @@ int main(int argc, char** argv)
                         1,      // refinement level
                         &surf);
 
-	const double vel2[] = {-0.1,-0.1,-0.1};
+	const double vel2[] = {0.2,0.2,0.2};
 	initSurfaceState(surf,vel2);
 
 	front.vfunc = NULL;
@@ -84,11 +84,11 @@ static  void propagation_driver(
 	std::vector<std::pair<TRI*,TRI*> > triPairList;
 	CollisionSolver *collision_solver = new CollisionSolver3d();
 
-	//collision_solver->setRoundingTolerance(0.1);
+	collision_solver->setRoundingTolerance(0.0001);
 	collision_solver->setFabricThickness(0.1);
 
         front->max_time = 5;
-        front->max_step = 100;
+        front->max_step = 20;
         front->print_time_interval = 0.5;
         front->movie_frame_interval = 0.01;
 
@@ -170,13 +170,19 @@ static void initSurfaceState(
 	TRI* tri;
 	POINT* p;
 	STATE* sl, *sr;
-	surf_tri_loop(surf,tri){
-	    for (int i = 0; i < 3; ++i){
+	surf_tri_loop(surf,tri)
+	{
+	    for (int i = 0; i < 3; ++i)
+	    {
 		p = Point_of_tri(tri)[i];
 		sl = (STATE*)left_state(p);
         	sr = (STATE*)right_state(p);
-		for (int j = 0; j < 3; ++j){
+		for (int j = 0; j < 3; ++j)
+		{
 		    sl->vel[j] = sr->vel[j] = vel[j];
+		    sl->impulse[j] = sr->impulse[j] = 0.0;
+		    sl->friction[j] = sr->friction[j] = 0.0;
+		    sl->collsn_num = sr->collsn_num = 0;
 		}
 	    }
 	}
@@ -218,7 +224,9 @@ static void collision_point_propagate(
 	{
 	    newsl->vel[i] = newsr->vel[i] = vel[i];
             Coords(newp)[i] = Coords(oldp)[i] + dt*vel[i];
+	    newsl->impulse[i] = newsr->impulse[i] = 0.0;
 	}
+	newsl->collsn_num = newsr->collsn_num = 0;
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */
