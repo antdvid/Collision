@@ -10,113 +10,93 @@ struct STATE{
 	double impulse[3];
 	double friction[3];
 	double avgVel[3];
+	double x_old[3];
 	int collsn_num;
 };
-//box traits structure for FronTier triangles
-template<typename T> struct Traits_of_FT
-{
-	typedef double          NT;
-        typedef T*            Box_parameter;
-        typedef std::ptrdiff_t ID;
-};
 
-template<> struct Traits_of_FT<TRI*>{
+//box traits structure for proximity detection 
+struct traitsForProximity{
 	typedef double 		NT;
 	typedef TRI*		Box_parameter;
 	typedef std::ptrdiff_t ID;
 
-	static double eps;
+	static double s_eps;
 	static int dimension(){ return 3;}
 	static double min_coord(Box_parameter b, int d){
-		return std::min(std::min(Coords(b->__pts[0])[d],
-			Coords(b->__pts[1])[d]),
-			Coords(b->__pts[2])[d])-eps;	
+		POINT** pts = Point_of_tri(b);
+		STATE* ls[3] = {(STATE*)left_state(pts[0]),
+				(STATE*)left_state(pts[1]),
+				(STATE*)left_state(pts[2])};
+		return std::min(std::min(
+				ls[0]->x_old[d],
+				ls[1]->x_old[d]),
+				ls[2]->x_old[d])-s_eps;
 	}
 	static double max_coord(Box_parameter b, int d){
-		return std::max(std::max(Coords(b->__pts[0])[d],
-                        Coords(b->__pts[1])[d]),
-                        Coords(b->__pts[2])[d])+eps;
+		POINT** pts = Point_of_tri(b);
+		STATE* ls[3] = {(STATE*)left_state(pts[0]),
+				(STATE*)left_state(pts[1]),
+				(STATE*)left_state(pts[2])};
+		return std::max(std::max(
+				ls[0]->x_old[d],
+				ls[1]->x_old[d]),
+				ls[2]->x_old[d])+s_eps;
 	}
 	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b);}
 };
 
-//box traits structure for FronTier tri_pair
-template<> struct Traits_of_FT<std::pair<TRI*,TRI*> >{
+//box traits structure for collision detection
+struct traitsForCollision{
 	typedef double          		NT;
-        typedef std::pair<TRI*,TRI*>      Box_parameter;
+        typedef TRI*      Box_parameter;
 
-	static double eps;
+	static double s_eps;
+	static double s_dt;
         static int dimension(){ return 3;}
         static double min_coord(Box_parameter b, int d){
 		double ans = INT_MAX;
+		POINT** pts = Point_of_tri(b);
 		for (int i = 0; i < 3; ++i){
-			ans = std::min(ans,Coords((b.first)->__pts[i])[d]);
-			ans = std::min(ans,Coords((b.second)->__pts[i])[d]);
+			STATE* ls = (STATE*)left_state(pts[i]);
+			ans = std::min(ans,ls->x_old[d]);
+			ans = std::min(ans,ls->x_old[d]+s_dt*ls->avgVel[i]);
 		}
-		return ans-eps;
+		return ans-s_eps;
         }
         static double max_coord(Box_parameter b, int d){
 		double ans = INT_MIN;
+		POINT** pts = Point_of_tri(b);
 		for (int i = 0; i < 3; ++i){
-			ans = std::max(ans,Coords((b.first)->__pts[i])[d]);
-			ans = std::max(ans,Coords((b.second)->__pts[i])[d]);
+			STATE* ls = (STATE*)left_state(pts[i]);
+			ans = std::max(ans,ls->x_old[d]);
+			ans = std::max(ans,ls->x_old[d]+s_dt*ls->avgVel[i]);
 		}
-		return ans+eps;
-        }
-	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b.first);}
-};
-
-//box traits structure for FronTier bonds
-template<> struct Traits_of_FT<BOND*>{
-	typedef double          NT;
-        typedef BOND*            Box_parameter;
-        typedef std::ptrdiff_t ID;
-
-	static double eps;
-        static int dimension(){ return 2;}
-        static double min_coord(Box_parameter b, int d){
-                return std::min(Coords(b->start)[d],
-                        Coords(b->end)[d])-eps;
-        }
-        static double max_coord(Box_parameter b, int d){
-                return std::max(Coords(b->start)[d],
-                        Coords(b->end)[d])+eps;
+		return ans+s_eps;
         }
 	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b);}
 };
 
-//box traits structure for FronTier bonds_pair
-template<> struct Traits_of_FT<std::pair<BOND*,BOND*> >{
-	typedef double          		NT;
-        typedef std::pair<BOND*,BOND*>     Box_parameter;
-
-	static double eps;
-        static int dimension(){ return 2;}
-        static double min_coord(Box_parameter b, int d){
-                double ans =  std::min(Coords(b.first->start)[d],
-                        Coords(b.first->end)[d]);
-		return std::min(ans,std::min(Coords(b.second->start)[d],
-                        Coords(b.second->end)[d]))-eps;
-        }
-        static double max_coord(Box_parameter b, int d){
-                double ans =  std::max(Coords(b.first->start)[d],
-                        Coords(b.first->end)[d]);
-		return std::max(ans,std::max(Coords(b.second->start)[d],
-                        Coords(b.second->end)[d]))+eps;
-        }
-	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b.first);}
-};
-
-extern bool doIntersect(const TRI*,const TRI*);
-extern bool doIntersect(const TRI_PAIR&,const TRI_PAIR&);
+extern bool isProximity(const TRI*,const TRI*);
+extern bool isCollision(const TRI*,const TRI*);
 
 template <typename T>
-struct Report {
+struct reportProximity{
     std::vector<std::pair<T,T> > *output;
-    Report(std::vector<std::pair<T,T> > &pairList) : output(&pairList) {}
+    reportProximity(std::vector<std::pair<T,T> > &pairList) : output(&pairList) {}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const T &a, const T &b) {
-	if (doIntersect(a,b))
+	if (isProximity(a,b))
+    	    output->push_back(std::make_pair<T,T>(a,b));
+    }
+};
+
+template <typename T>
+struct reportCollision{
+    std::vector<std::pair<T,T> > *output;
+    reportCollision(std::vector<std::pair<T,T> > &pairList) : output(&pairList) {}
+    // We write the elements with respect to 'boxes' to the output
+    void operator()( const T &a, const T &b) {
+	if (isCollision(a,b))
     	    output->push_back(std::make_pair<T,T>(a,b));
     }
 };
@@ -125,8 +105,9 @@ struct Report {
 class CollisionSolver {
 private:
 	//rounding tolerance
-	static double eps;
-	static double thickness;
+	static double s_eps;
+	static double s_thickness;
+	static double s_dt;
 protected:
 	Front *front;
 public:
@@ -134,10 +115,11 @@ public:
 	static double getRoundingTolerance();
 	static void setFabricThickness(double);
 	static double getFabricThickness();
+	static void setTimeStepSize(double);
+	static double getTimeStepSize();
 	virtual ~CollisionSolver() {}; //virtual destructor
 	//pure virtual functions
 	virtual void assembleFromInterface(const INTERFACE*) = 0;
-	virtual void assembleFromTwoInterface(const INTERFACE*,const INTERFACE*) = 0;
 	virtual void detectProximity() = 0;
 	virtual void detectCollision() = 0;
 	virtual void resolveCollision() = 0;
@@ -154,11 +136,8 @@ private:
 	std::vector<BOND*> bondsList;
 	//bond pairs
 	std::vector<BOND_PAIR> bondPairList;
-	//pair of bond pairs
-	std::vector<std::pair<BOND_PAIR,BOND_PAIR> >bondTwoPairList;
 public:
 	void assembleFromInterface(const INTERFACE*);
-	void assembleFromTwoInterface(const INTERFACE*,const INTERFACE*);
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
@@ -166,8 +145,7 @@ public:
 	void printCollision();
 	void gviewplotPairList(const char*);
 	void gviewplotPair(const char *);
-	void getProximityBondsPairList(std::vector<std::pair<BOND*,BOND*> >&);
-	void getCollisionBondsDoublePairList(std::vector<std::pair<BOND_PAIR,BOND_PAIR> >&);
+	void getBondPairList(std::vector<std::pair<BOND*,BOND*> >&);
 };
 
 //derived 3D-class for collision detection and handling
@@ -177,11 +155,13 @@ private:
 	std::vector<TRI*> trisList;
 	//tri pairs
 	std::vector<TRI_PAIR> triPairList;
-	//pair of tri pairs
-	std::vector<std::pair<TRI_PAIR,TRI_PAIR> > triTwoPairList;
+	void computeAverageVelocity();
+	void updateAverageVelocity();
+	void updateFinalVelocity();
+	void updateFinalPosition();
+	void recordOriginVelocity();
 public:
 	void assembleFromInterface(const INTERFACE*);
-	void assembleFromTwoInterface(const INTERFACE*,const INTERFACE*);
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
@@ -189,6 +169,5 @@ public:
 	void printCollision();
 	void gviewplotPairList(const char*);
 	void gviewplotPair(const char *);
-	void getProximityTrisPairList(std::vector<std::pair<TRI*,TRI*> >&);
-	void getCollisionTrisDoublePairList(std::vector<std::pair<TRI_PAIR,TRI_PAIR> >&);
+	void getTriPairList(std::vector<TRI_PAIR>&);
 };

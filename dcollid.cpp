@@ -3,6 +3,8 @@
 #include <CGAL/intersections.h>
 #include <vector>
 #include <fstream>
+#include <math.h>
+#include <algorithm>
 #include <FronTier.h>
 #include "collid.h"
 
@@ -12,9 +14,11 @@ static bool PointToTri(POINT** pts, double h);
 static bool EdgeToEdge(POINT** pts, double h);
 static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
 static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
-static void UpdateVel(std::vector<TRI_PAIR>);
 
-static bool TriPairToTriPair(const TRI_PAIR& a,const TRI_PAIR &b);
+static bool isCoplanar(POINT*[], const double, const double, double[]);
+static bool MovingTriToTri(const TRI*,const TRI*,double);
+static bool MovingPointToTri(POINT*[],const double);
+static bool MovingEdgeToEdge(POINT*[],const double);
 
 static void Pts2Vec(const POINT* p1, const POINT* p2, double* v);
 static void scalarMult(double a,double* v, double* ans);
@@ -28,34 +32,48 @@ typedef Kernel::Triangle_3                                    Triangle_3;
 
 //define rounding tolerance for collision detection
 const double EPS = 0.000001;
-double CollisionSolver::eps = EPS;
-double CollisionSolver::thickness = 0.001;
-double Traits_of_FT<TRI*>::eps = EPS;
-double Traits_of_FT<TRI_PAIR>::eps = EPS;
+double CollisionSolver::s_eps = EPS;
+double CollisionSolver::s_thickness = 0.001;
+double CollisionSolver::s_dt = 0.001;
+double traitsForProximity::s_eps = EPS;
+double traitsForCollision::s_eps = EPS;
+double traitsForCollision::s_dt = 0.001;
 
 //functions in the abstract base class
 //set rounding tolerance
 void CollisionSolver::setRoundingTolerance(double neweps)
 {
-	eps = neweps;
-	Traits_of_FT<TRI*>::eps = eps;	
-	Traits_of_FT<TRI_PAIR>::eps = eps;
+	s_eps = neweps;
+	traitsForProximity::s_eps = neweps;	
+	traitsForCollision::s_eps = neweps;
 }
 
 double CollisionSolver::getRoundingTolerance()
 {
-	return eps;
+	return s_eps;
 }
 
 //set fabric thickness
 void CollisionSolver::setFabricThickness(double h)
 {
-	thickness = h;
+	s_thickness = h;
 }
 
 double CollisionSolver::getFabricThickness()
 {
-	return thickness;
+	return s_thickness;
+}
+
+//this function should be called at every time step
+void CollisionSolver::setTimeStepSize(double new_dt)
+{
+	s_dt = new_dt;
+	traitsForCollision::s_dt = new_dt;
+}
+
+double CollisionSolver::getTimeStepSize()
+{
+	return s_dt;
 }
 
 //functions in CollisionSolver3d
@@ -78,31 +96,46 @@ void CollisionSolver3d::assembleFromInterface(
 	}
 }
 
-void CollisionSolver3d::assembleFromTwoInterface(
-	const INTERFACE* oldIntfc,const INTERFACE* newIntfc)
-{
-	SURFACE **oldS, **newS;
-	TRI *oldTri, *newTri;
-
-	triPairList.clear();
-	triTwoPairList.clear();
-	for ((oldS) = (oldIntfc)->surfaces, 
-	     (newS) = (newIntfc)->surfaces; 
-	     (oldS) && *(oldS) &&
-	     (newS) && *(newS); 
-	     ++(oldS), ++(newS)) 
-	{
-	    if (is_bdry(*oldS) || is_bdry(*newS)) continue;
-	    for ((oldTri) = first_tri((*oldS)),
-		 (newTri) = first_tri((*newS)); 
-		!at_end_of_tri_list((oldTri),(*oldS)) &&
-		!at_end_of_tri_list((newTri),(*newS));
-		(oldTri) = (oldTri)->next,
-		(newTri) = (newTri)->next)
-	    {
-	        triPairList.push_back(std::make_pair<TRI*,TRI*>(oldTri,newTri));
+/*This function should be called before 
+ *computing cloth internal dynamics*/
+void CollisionSolver3d::recordOriginVelocity(){
+	POINT* pt;
+	STATE* sl, *sr;
+	for (std::vector<TRI*>::iterator it = trisList.begin();
+                it != trisList.end(); ++it){
+	    for (int i = 0; i < 3; ++i){
+		pt = Point_of_tri(*it)[i];
+		sl = (STATE*)left_state(pt); 
+		sr = (STATE*)right_state(pt);
+		for (int j = 0; j < 3; ++j)
+		    sl->x_old[j] = Coords(pt)[j];
 	    }
 	}
+}
+
+void CollisionSolver3d::computeAverageVelocity(){
+	POINT* pt;
+        STATE* sl; 
+        for (std::vector<TRI*>::iterator it = trisList.begin();
+                it != trisList.end(); ++it){
+            for (int i = 0; i < 3; ++i){
+                pt = Point_of_tri(*it)[i];
+                sl = (STATE*)left_state(pt); 
+                for (int j = 0; j < 3; ++j)
+                    sl->avgVel[j] = (Coords(pt)[j] - sl->x_old[j])/getTimeStepSize();
+            }
+        }
+	//restore coords of points to old coords
+	//there is only one coords for each point, x_old 
+	for (std::vector<TRI*>::iterator it = trisList.begin();
+                it != trisList.end(); ++it){
+            for (int i = 0; i < 3; ++i){
+                pt = Point_of_tri(*it)[i];
+                sl = (STATE*)left_state(pt);
+                for (int j = 0; j < 3; ++j)
+                    Coords(pt)[j] =  sl->x_old[j];
+            }
+        }
 }
 
 static void writeTriCoords(TRI* tri)
@@ -112,7 +145,7 @@ static void writeTriCoords(TRI* tri)
 		std::cout << "[ ";
 		for (int j = 0; j < 3; ++j)
 		{
-		    std::cout << Coords(tri->__pts[i])[j] << " ";
+		    std::cout << Coords(Point_of_tri(tri)[i])[j] << " ";
 		}
 		std::cout << "] ";
 	}
@@ -125,7 +158,7 @@ void CollisionSolver3d::printProximity()
 	{
 		std::cout<<"#" << it-triPairList.begin();
 		writeTriCoords(it->first);
-		std::cout << "intersects with" << std::endl;
+		std::cout << "intersects with " << std::endl;
 		writeTriCoords(it->second);
 		std::cout << std::endl;
 	}
@@ -133,33 +166,35 @@ void CollisionSolver3d::printProximity()
 
 void CollisionSolver3d::printCollision()
 {
-	int count = 0;
-	for (std::vector<std::pair<TRI_PAIR,TRI_PAIR> >::iterator it = triTwoPairList.begin(); 
-		it != triTwoPairList.end(); ++it)
+	for (std::vector<TRI_PAIR>::iterator it = triPairList.begin(); 
+		it != triPairList.end(); ++it)
 	{
-		std::cout<<"#" << ++count << std::endl;
-		std::cout<<(std::ptrdiff_t)(it->first.first);
-		std::cout << " intersects with ";
-		std::cout<<(std::ptrdiff_t)(it->second.first) << std::endl;
+		std::cout<<"#" << it-triPairList.begin() << std::endl;
+		writeTriCoords(it->first);
+		std::cout << " collides with ";
+		writeTriCoords(it->second);
 	}
 }
 
-void CollisionSolver3d::getProximityTrisPairList(std::vector<std::pair<TRI*,TRI*> > &pairList)
+void CollisionSolver3d::getTriPairList(std::vector<std::pair<TRI*,TRI*> > &pairList)
 {
-	pairList =  triPairList;	
+	pairList =  triPairList;
 }
 
 void CollisionSolver3d::detectProximity()
 {
+	triPairList.clear();
 	CGAL::box_self_intersection_d(trisList.begin(),trisList.end(),
-                                     Report<TRI*>(triPairList),Traits_of_FT<TRI*>());
-	UpdateVel(triPairList);
+                                     reportProximity<TRI*>(triPairList),traitsForProximity());
+	updateAverageVelocity();
 }
 
 void CollisionSolver3d::detectCollision()
 {
-	CGAL::box_self_intersection_d(triPairList.begin(),triPairList.end(),
-                                     Report<TRI_PAIR>(triTwoPairList),Traits_of_FT<TRI_PAIR>());
+	triPairList.clear();
+	CGAL::box_self_intersection_d(trisList.begin(),trisList.end(),
+                                     reportCollision<TRI*>(triPairList),traitsForCollision());
+	updateAverageVelocity();
 }
 
 //resolve collision in the input tris list
@@ -169,8 +204,10 @@ void CollisionSolver3d::resolveCollision()
 	detectProximity();
 	//test collision for tri pairs
 	detectCollision();
-	//print proximity tri pairs
-	printProximity();
+	//update position using average velocity
+	updateFinalPosition();
+	//update velocity using average velocity
+	updateFinalVelocity();
 }
 
 void CollisionSolver3d::gviewplotPair(const char *dname)
@@ -300,18 +337,24 @@ void CollisionSolver3d::gviewplotPairList(const char *dname)
 	delete[] tris;
 }
 
-extern bool doIntersect(const TRI_PAIR& a, const TRI_PAIR& b){
-	if (a.first->surf == b.first->surf && 
-	    (wave_type(Hyper_surf(a.first->surf)) == NEUMANN_BOUNDARY ||
-	     wave_type(Hyper_surf(a.first->surf)) == MOVABLE_BODY_BOUNDARY))
+extern bool isCollision(const TRI* a, const TRI* b){
+	if (a->surf == b->surf && 
+	    (wave_type(Hyper_surf(a->surf)) == NEUMANN_BOUNDARY ||
+	     wave_type(Hyper_surf(a->surf)) == MOVABLE_BODY_BOUNDARY))
 	     return false;
-	else if (TriPairToTriPair(a,b)) 
+	for (int i = 0; i < 3; ++i)
+        for (int j = 0; j < 3; ++j)
+        {
+            if (Point_of_tri(a)[i] == Point_of_tri(b)[j])
+                return false;
+        }
+	if (MovingTriToTri(a,b,CollisionSolver3d::getRoundingTolerance())) 
 	     return true;
 	else
 	     return false;			
 }
 
-extern bool doIntersect(const TRI* a, const TRI* b){
+extern bool isProximity(const TRI* a, const TRI* b){
 	if (a->surf == b->surf &&
   	    (wave_type(Hyper_surf(a->surf)) == NEUMANN_BOUNDARY ||
   	    wave_type(Hyper_surf(a->surf)) == MOVABLE_BODY_BOUNDARY ||
@@ -320,7 +363,7 @@ extern bool doIntersect(const TRI* a, const TRI* b){
 	for (int i = 0; i < 3; ++i)
 	for (int j = 0; j < 3; ++j)
 	{
-	    if (a->__pts[i] == b->__pts[j])
+	    if (Point_of_tri(a)[i] == Point_of_tri(b)[j])
 		return false;
 	}
 	if (TriToTri(a,b,CollisionSolver3d::getFabricThickness()))
@@ -329,34 +372,194 @@ extern bool doIntersect(const TRI* a, const TRI* b){
 	    return false;
 }
 
-static bool TriPairToTriPair(const TRI_PAIR& a,const TRI_PAIR &b)
+//helper function to detect a collision between a moving
+//point and a moving triangle
+//or between two moving edges 
+static bool MovingTriToTri(const TRI* a,const TRI* b, const double h)
 {
-	return true;
+	POINT* pts[4];
+	bool status = false;
+	//detect point to tri collision
+	for (int i = 0; i < 3; ++i){
+	    for (int j = 0; j < 3; ++j)
+	    	pts[j] = Point_of_tri(b)[j];
+	    pts[3] = Point_of_tri(a)[i];
+	    if(MovingPointToTri(pts,h)) status = true;
+
+	    for (int j = 0; j < 3; ++j)
+		pts[j] = Point_of_tri(a)[j];
+	    pts[3] = Point_of_tri(b)[i];
+	    if(MovingPointToTri(pts,h)) status = true;
+	}
+
+	//detect edge to edge collision
+	for (int i = 0; i < 3; ++i)
+        {
+            pts[0] = Point_of_tri(a)[i];
+            pts[1] = Point_of_tri(a)[(i+1)%3];
+            for (int j = 0; j < 3; ++j){
+                pts[2] = Point_of_tri(b)[j];
+                pts[3] = Point_of_tri(b)[(j+1)%3];
+	    }
+            if(MovingEdgeToEdge(pts,h)) status = true;
+        }
+	return status;
 }
 
+static bool MovingPointToTri(POINT* pts[],const double h){
+	double dt = CollisionSolver3d::getTimeStepSize();
+	double roots[4] = {-1,-1,-1,dt};
+	STATE* sl;
+	if (isCoplanar(pts,h,dt,roots)){
+	    for (int i = 0; i < 4; ++i){
+		if (roots[i] < 0) continue;
+		for (int j = 0; j < 4; ++j){
+		    sl = (STATE*)left_state(pts[j]);
+		    for (int k = 0; k < 3; ++k)
+		        Coords(pts[j])[k] = sl->x_old[k]+roots[i]*sl->avgVel[k];	
+		}
+		if (PointToTri(pts,h)) 
+			return true;
+	    }
+	    return false;
+	}
+	else
+	    return false;
+}
+
+static bool MovingEdgeToEdge(POINT* pts[],const double h){
+	double dt = CollisionSolver3d::getTimeStepSize();
+	double roots[4] = {-1,-1,-1,dt};
+	STATE* sl;
+	if (isCoplanar(pts,h,dt,roots)){
+            for (int i = 0; i < 4; ++i){
+                if (roots[i] < 0) continue;
+                for (int j = 0; j < 4; ++j){
+                    sl = (STATE*)left_state(pts[j]);
+                    for (int k = 0; k < 3; ++k)
+                        Coords(pts[j])[k] = sl->x_old[k]+roots[i]*sl->avgVel[k];
+                }
+                if (EdgeToEdge(pts,h))
+                        return true;
+            }
+	    return false;
+        }
+	else
+	    return false;
+}
+
+static bool isCoplanar(POINT* pts[], const double h, const double dt, double roots[])
+{
+	double v[4][3], x[4][3];
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    for (int j = 0; j < 3; ++j){
+	        v[i][j] = sl->avgVel[j];
+		x[i][j] = sl->x_old[j];
+	    }
+	}
+	for (int i = 1; i < 4; ++i){
+	    for (int j = 0; j < 3; ++j){
+		v[i][j] = v[0][j] - v[i][j];
+		x[i][j] = x[0][j] - x[i][j];
+	    }
+	}
+	//get roots "t" of a cubic equation
+	//(x1+tv1)x(x2+tv2)*(x3+tv3) = 0
+	//transform to at^3+bt^2+ct+d = 0
+	double a, b, c, d;
+	a = v[3][2]*(v[1][0]*v[2][1]-v[1][1]*v[2][0])-
+            v[3][1]*(v[1][0]*v[2][2]-v[1][2]*v[2][0])+
+            v[3][0]*(v[1][1]*v[2][2]-v[1][2]*v[2][1]);
+        b = v[3][2]*(v[1][0]*x[2][1]-v[1][1]*x[2][0]-v[2][0]*x[1][1]+v[2][1]*x[1][0])-
+            v[3][1]*(v[1][0]*x[2][2]-v[1][2]*x[2][0]-v[2][0]*x[1][2]+v[2][2]*x[1][0])+
+            v[3][0]*(v[1][1]*x[2][2]-v[1][2]*x[2][1]-v[2][1]*x[1][2]+v[2][2]*x[1][1])+
+            x[3][2]*(v[1][0]*v[2][1]-v[1][1]*v[2][0])-
+            x[3][1]*(v[1][0]*v[2][2]-v[1][2]*v[2][0])+
+            x[3][0]*(v[1][1]*v[2][2]-v[1][2]*v[2][1]);
+        c = x[3][2]*(v[1][0]*x[2][1]-v[1][1]*x[2][0]-v[2][0]*x[1][1]+v[2][1]*x[1][0])-
+            x[3][1]*(v[1][0]*x[2][2]-v[1][2]*x[2][0]-v[2][0]*x[1][2]+v[2][2]*x[1][0])+
+            x[3][0]*(v[1][1]*x[2][2]-v[1][2]*x[2][1]-v[2][1]*x[1][2]+v[2][2]*x[1][1])+
+            v[3][2]*(x[1][0]*x[2][1]-x[1][1]*x[2][0])-
+            v[3][1]*(x[1][0]*x[2][2]-x[1][2]*x[2][0])+
+            v[3][0]*(x[1][1]*x[2][2]-x[1][2]*x[2][1]);
+        d = x[3][2]*(x[1][0]*x[2][1]-x[1][1]*x[2][0])-
+            x[3][1]*(x[1][0]*x[2][2]-x[1][2]*x[2][0])+
+            x[3][0]*(x[1][1]*x[2][2]-x[1][2]*x[2][1]);
+	//solve equation using method from "Art of Scientific Computing"
+	//transform equation to t^3+at^2+bt+c = 0
+	if (a != 0){
+	    b /= a; c /= a; d /= a;
+	    a = b; b = c; c = d;
+	    double Q, R, theta;
+	    Q = (a*a-3*b)/9;
+	    R = (2*a*a*a-9*a*b+27*c)/54;
+	    if (R*R < Q*Q*Q){
+		theta = acos(R/sqrt(Q*Q*Q));
+		roots[0] = -2*sqrt(Q)*cos(theta/3)-a/3;
+		roots[1] = -2*sqrt(Q)*cos((theta+2*M_PI)/3)-a/3;
+		roots[2] = -2*sqrt(Q)*cos((theta-2*M_PI)/3)-a/3;	
+	    }
+	    else{
+		double A, B;
+		double sgn = (R > 0) ? 1.0 : -1.0;
+		A = -sgn*pow(fabs(R)+sqrt(R*R-Q*Q*Q),1.0/3.0);
+		B = (A == 0) ? 0.0 : Q/A;
+		roots[0] = (A+B)-a/3.0;
+		if (A == B)
+		    roots[1] = roots[2] = -0.5*(A+B)-a/3.0; //multiply roots
+		else
+		    roots[1] = roots[2] = -1; //complex roots, discard
+	    }
+	}
+	else{
+		a = b; b = c; c = d;
+	   	double delta = b*b-4.0*a*c;
+	   	if (delta > 0){
+		    roots[0] = (-b+sqrt(delta))/(2.0*a);
+	    	    roots[1] = (-b-sqrt(delta))/(2.0*a);
+		    roots[2] = -1;
+	   	}
+	   	else
+		    roots[0] = roots[1] = roots[2] = -1;//complex roots, discard
+	}
+	//select and sort roots;
+	for (int i = 0; i < 3; ++i){
+	    	if (roots[i] < 0 || roots[i] > dt) 
+		    roots[i] = -1;
+	}
+	for (int i = 1; i < 3; ++i)
+	for (int k = i; k > 0 && roots[k] < roots[k-1]; k--)
+		std::swap(roots[k],roots[k-1]);
+	for (int i = 1; i < 3; ++i)
+	if (roots[i] != -1) return true;
+	return false;
+}
+
+//TODO: check for each pair before return?
 //helper function to detect intersection or proximity between geometries
 static bool TriToTri(const TRI* tri1, const TRI* tri2, double h){
 	POINT* pts[4];
 	for (int i = 0; i < 3; ++i)
 	{
 	    for (int j = 0; j < 3; ++j)
-		pts[j] = tri2->__pts[j];
-	    pts[3] = tri1->__pts[i];
+		pts[j] = Point_of_tri(tri2)[j];
+	    pts[3] = Point_of_tri(tri1)[i];
 	    if (PointToTri(pts,h))
 		return true;
 	    for (int j = 0; j < 3; ++j)
-                pts[j] = tri1->__pts[j];
-            pts[3] = tri2->__pts[i];
+                pts[j] = Point_of_tri(tri1)[j];
+            pts[3] = Point_of_tri(tri2)[i];
 	    if(PointToTri(pts,h))
                 return true;
 	}
 	for (int i = 0; i < 3; ++i)
 	{
-	    pts[0] = tri1->__pts[i];
-	    pts[1] = tri1->__pts[(i+1)%3];
+	    pts[0] = Point_of_tri(tri1)[i];
+	    pts[1] = Point_of_tri(tri1)[(i+1)%3];
 	    for (int j = 0; j < 3; ++j){
-		pts[2] = tri2->__pts[j];
-		pts[3] = tri2->__pts[(j+1)%3];
+		pts[2] = Point_of_tri(tri2)[j];
+		pts[3] = Point_of_tri(tri2)[(j+1)%3];
 	  	if (EdgeToEdge(pts, h))
 		    return true;
 	    }  
@@ -467,11 +670,10 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 	    sl[i] = (STATE*)left_state(pts[i]);
 	    sr[i] = (STATE*)right_state(pts[i]);
 	}
-	std::cout << "In PointToTirUpdateVel()" << std::endl;
-
 	double v_rel[3] = {0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 500, m = 0.01, dt = 0.01, lambda = 0.02;;
+	double k = 500, m = 0.01,lambda = 0.02;
+	double dt = CollisionSolver::getTimeStepSize();
 
 	/* it is supposed to use the average velocity*/
 	for (int i = 0; i < 3; ++i)
@@ -531,7 +733,8 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	double v_rel[3] = {0.0, 0.0, 0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 500, m = 0.01, dt = 0.01, lambda = 0.02;
+	double k = 500, m = 0.01, lambda = 0.02;
+	double dt = CollisionSolver::getTimeStepSize();
 
 	/* it is supposed to use the average velocity*/
 	for (int j = 0; j < 3; ++j)
@@ -585,7 +788,43 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	}
 }
 
-static void UpdateVel(std::vector<TRI_PAIR> triPairList)
+void CollisionSolver3d::updateFinalPosition()
+{
+	POINT* pt;
+	STATE* sl;
+	double dt = getTimeStepSize();
+	for (std::vector<TRI*>::iterator it = trisList.begin();
+	     it != trisList.end(); ++it)
+	{
+	    for (int i = 0; i < 3; ++i){
+		pt = Point_of_tri(*it)[i];
+		sl = (STATE*)left_state(pt);
+	    	for (int j = 0; j < 3; ++j)
+		    Coords(pt)[j] = sl->x_old[j]+sl->avgVel[j]*dt;
+	    }
+	}
+}
+
+void CollisionSolver3d::updateFinalVelocity()
+{
+	//TODO:avgVel is actually the velocity at t(n+1/2)
+	//need to call spring solver to get velocity at t(n+1)
+	//for simplicity now set v(n+1) = v(n+1/2)
+	POINT* pt;
+	STATE* sl;
+	for (std::vector<TRI*>::iterator it = trisList.begin();
+             it != trisList.end(); ++it)
+        {
+            for (int i = 0; i < 3; ++i){
+                pt = Point_of_tri(*it)[i];
+                sl = (STATE*)left_state(pt);
+                for (int j = 0; j < 3; ++j)
+                    sl->vel[j] = sl->avgVel[j];
+            }
+        }
+}
+
+void CollisionSolver3d::updateAverageVelocity()
 {
 	POINT *p;
 	STATE *sl, *sr;
@@ -606,9 +845,13 @@ static void UpdateVel(std::vector<TRI_PAIR> triPairList)
 			sl->friction[2]/sl->collsn_num);
 		    for (int k = 0; k < 3; ++k)
 		    {
-			sl->vel[k] += (sl->impulse[k] + sl->friction[k])
+			sl->avgVel[k] += (sl->impulse[k] + sl->friction[k])
 					/sl->collsn_num;
-			sr->vel[k] = sl->vel[k];
+			sr->avgVel[k] = sl->avgVel[k];
+			//reset impulse and fricition to 0
+			//collision handling will recalculate the impulse
+			sl->impulse[k] = sl->friction[k] = 0.0;
+			sl->collsn_num = 0;
 		    }
 		}
 		sorted(p) = YES;
@@ -627,8 +870,13 @@ static void UpdateVel(std::vector<TRI_PAIR> triPairList)
 			sl->friction[2]/sl->collsn_num);
 		    for (int k = 0; k < 3; ++k)
 		    {
-			sl->vel[k] += sl->impulse[k]/sl->collsn_num;
-			sr->vel[k] = sl->vel[k];
+			sl->avgVel[k] += (sl->impulse[k] + sl->friction[k])
+					 /sl->collsn_num;
+			sr->avgVel[k] = sl->avgVel[k];
+			//reset impulse and friction to 0
+			//collision handling will recalculate the impulse
+			sl->impulse[k] = sl->friction[k] = 0.0;
+			sl->collsn_num = 0;
 		    }
 		}
 		sorted(p) = YES;
@@ -642,14 +890,14 @@ static bool trisIntersect(const TRI* a, const TRI* b)
 	Point_3 pts[3];
 	Triangle_3 tri1,tri2;
 	for (int i = 0; i < 3; ++i)
-	   pts[i] = Point_3(Coords(a->__pts[i])[0],
-                            Coords(a->__pts[i])[1],
-                            Coords(a->__pts[i])[2]);
+	   pts[i] = Point_3(Coords(Point_of_tri(a)[i])[0],
+                            Coords(Point_of_tri(a)[i])[1],
+                            Coords(Point_of_tri(a)[i])[2]);
 	tri1 = Triangle_3(pts[0],pts[1],pts[2]);
 	for (int i = 0; i < 3; ++i)
-	   pts[i] = Point_3(Coords(b->__pts[i])[0],
-			    Coords(b->__pts[i])[1],
-			    Coords(b->__pts[i])[2]);
+	   pts[i] = Point_3(Coords(Point_of_tri(b)[i])[0],
+			    Coords(Point_of_tri(b)[i])[1],
+			    Coords(Point_of_tri(b)[i])[2]);
 	tri2 = Triangle_3(pts[0],pts[1],pts[2]);
 	return CGAL::do_intersect(tri1,tri2);
 }

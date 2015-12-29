@@ -28,3 +28,6 @@
 *.app
 collid3d
 tags
+
+#Outputs
+out-*
