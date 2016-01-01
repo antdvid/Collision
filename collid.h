@@ -7,7 +7,7 @@ typedef std::pair<BOND*,BOND*> BOND_PAIR;
 
 struct STATE{
 	double vel[3];
-	double impulse[3];
+	double collsnImpulse[3];
 	double friction[3];
 	double avgVel[3];
 	double x_old[3];
@@ -81,23 +81,28 @@ extern bool isCollision(const TRI*,const TRI*);
 
 template <typename T>
 struct reportProximity{
-    std::vector<std::pair<T,T> > *output;
-    reportProximity(std::vector<std::pair<T,T> > &pairList) : output(&pairList) {}
+    std::vector<std::pair<T,T> > &output;
+    reportProximity(std::vector<TRI_PAIR> &pairList) : output(pairList) {}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const T &a, const T &b) {
 	if (isProximity(a,b))
-    	    output->push_back(std::make_pair<T,T>(a,b));
+    	    output.push_back(std::make_pair<T,T>(a,b));
     }
 };
 
 template <typename T>
 struct reportCollision{
-    std::vector<std::pair<T,T> > *output;
-    reportCollision(std::vector<std::pair<T,T> > &pairList) : output(&pairList) {}
+    std::vector<std::pair<T,T> >& output;
+    bool& is_collision;
+    reportCollision(std::vector<TRI_PAIR> &pairList,bool &status) 
+		   : output(pairList), is_collision(status) {}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const T &a, const T &b) {
 	if (isCollision(a,b))
-    	    output->push_back(std::make_pair<T,T>(a,b));
+	{
+    	    output.push_back(std::make_pair<T,T>(a,b));
+	    is_collision = true;
+	}
     }
 };
 
@@ -119,7 +124,7 @@ public:
 	static double getTimeStepSize();
 	virtual ~CollisionSolver() {}; //virtual destructor
 	//pure virtual functions
-	virtual void assembleFromInterface(const INTERFACE*) = 0;
+	virtual void assembleFromInterface(const INTERFACE*,double dt) = 0;
 	virtual void detectProximity() = 0;
 	virtual void detectCollision() = 0;
 	virtual void resolveCollision() = 0;
@@ -137,7 +142,7 @@ private:
 	//bond pairs
 	std::vector<BOND_PAIR> bondPairList;
 public:
-	void assembleFromInterface(const INTERFACE*);
+	void assembleFromInterface(const INTERFACE*,double dt);
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
@@ -159,9 +164,10 @@ private:
 	void updateAverageVelocity();
 	void updateFinalVelocity();
 	void updateFinalPosition();
-	void recordOriginVelocity();
+	void computeImpactZone();
 public:
-	void assembleFromInterface(const INTERFACE*);
+	void assembleFromInterface(const INTERFACE*,double dt);
+	void recordOriginVelocity();
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();

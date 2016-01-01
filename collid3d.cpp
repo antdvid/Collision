@@ -81,14 +81,13 @@ static  void propagation_driver(
         Front *front)
 {
         double CFL;
-	std::vector<std::pair<TRI*,TRI*> > triPairList;
 	CollisionSolver *collision_solver = new CollisionSolver3d();
 
-	collision_solver->setRoundingTolerance(0.0001);
-	collision_solver->setFabricThickness(0.1);
+	collision_solver->setRoundingTolerance(0.000001);
+	collision_solver->setFabricThickness(0.001);
 
         front->max_time = 5;
-        front->max_step = 20;
+        front->max_step = 50;
         front->print_time_interval = 0.5;
         front->movie_frame_interval = 0.01;
 
@@ -123,21 +122,17 @@ static  void propagation_driver(
 
         FT_TimeControlFilter(front);
 
+        FT_PrintTimeStamp(front);
         for (;;)
         {
             /* Propagating interface for time step dt */
-	    //collision detect and handling
-	    triPairList.clear();
-	    collision_solver->assembleFromInterface(front->interf);
-	    collision_solver->detectProximity();
-	    collision_solver->printProximity();
-	    char dname[256];
-	    sprintf(dname,"%s/intfc",OutName(front));
-	    collision_solver->gviewplotPairList(dname);
-	    collision_solver->gviewplotPair(dname);
-	    geomview_interface_plot(dname,front->interf,front->rect_grid);
 
             FT_Propagate(front);
+
+	    //collision detect and handling
+	    collision_solver->assembleFromInterface(front->interf,front->dt);
+	    collision_solver->resolveCollision();
+
             FT_AddTimeStepToCounter(front);
 
             //Next time step determined by maximum speed of previous
@@ -149,6 +144,7 @@ static  void propagation_driver(
 
             /* Output section */
 
+            FT_TimeControlFilter(front);
             FT_PrintTimeStamp(front);
             if (FT_IsSaveTime(front))
                 FT_Save(front);
@@ -158,7 +154,6 @@ static  void propagation_driver(
             if (FT_TimeLimitReached(front))
                     break;
 
-            FT_TimeControlFilter(front);
         }
 	delete collision_solver;
 }       /* end propagation_driver */
@@ -180,9 +175,10 @@ static void initSurfaceState(
 		for (int j = 0; j < 3; ++j)
 		{
 		    sl->vel[j] = sr->vel[j] = vel[j];
-		    sl->impulse[j] = sr->impulse[j] = 0.0;
+		    sl->collsnImpulse[j] = sr->collsnImpulse[j] = 0.0;
 		    sl->friction[j] = sr->friction[j] = 0.0;
 		    sl->collsn_num = sr->collsn_num = 0;
+		    sl->x_old[j] = Coords(p)[j]; 
 		}
 	    }
 	}
@@ -224,8 +220,15 @@ static void collision_point_propagate(
 	{
 	    newsl->vel[i] = newsr->vel[i] = vel[i];
             Coords(newp)[i] = Coords(oldp)[i] + dt*vel[i];
-	    newsl->impulse[i] = newsr->impulse[i] = 0.0;
+	    newsl->collsnImpulse[i] = newsr->collsnImpulse[i] = 0.0;
+	    newsl->x_old[i] = Coords(oldp)[i];
 	}
+	/*printf("x_old = [%f %f %f]",
+		newsl->x_old[0],newsl->x_old[1],newsl->x_old[2]);
+	printf("x_new = [%f %f %f]\n",
+		Coords(newp)[0],Coords(newp)[1],Coords(newp)[2]);
+	printf("vel = [%f %f %f], dt = %f\n",
+		vel[0],vel[1],vel[2],dt);*/
 	newsl->collsn_num = newsr->collsn_num = 0;
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
