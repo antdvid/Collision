@@ -4,7 +4,7 @@
 
 //test module for 3d surface
 //proximity and collision detection
-char *restart_name;
+char *in_name,*restart_state_name,*restart_name,*out_name;
 boolean RestartRun;
 int RestartStep;
 static void propagation_driver(Front*);
@@ -12,7 +12,8 @@ static void collision_point_propagate(Front*,POINTER,POINT*,
         			      POINT *newp,HYPER_SURF_ELEMENT *,
         			      HYPER_SURF*,double,double*);
 static void initSurfaceState(SURFACE*,const double*);
-
+static void initTestModule(Front&, char*);
+static void initBallToBall(Front&);
 
 int main(int argc, char** argv)
 {
@@ -22,49 +23,28 @@ int main(int argc, char** argv)
         SURFACE *surf;
 	f_basic.dim = 3;
         FT_Init(argc,argv,&f_basic);
+        f_basic.size_of_intfc_state = sizeof(STATE);
 
         /* Initialize basic computational data */
-
-        f_basic.L[0] = 0.0;     f_basic.L[1] = 0.0;     f_basic.L[2] = 0.0;
-        f_basic.U[0] = 0.5;     f_basic.U[1] = 0.5;     f_basic.U[2] = 0.5;
-        f_basic.gmax[0] = 50;  f_basic.gmax[1] = 50; f_basic.gmax[2] = 50;
-        f_basic.boundary[0][0] = f_basic.boundary[0][1] = DIRICHLET_BOUNDARY;
-        f_basic.boundary[1][0] = f_basic.boundary[1][1] = DIRICHLET_BOUNDARY;
-        f_basic.boundary[2][0] = f_basic.boundary[2][1] = DIRICHLET_BOUNDARY;
-        f_basic.size_of_intfc_state = sizeof(STATE);
-	FT_StartUp(&front,&f_basic);
-	level_func_pack.pos_component = 2;
 	
-	restart_name            = f_basic.restart_name;
+        in_name                 = f_basic.in_name;
+        restart_state_name      = f_basic.restart_state_name;
+        out_name                = f_basic.out_name;
+        restart_name            = f_basic.restart_name;
         RestartRun              = f_basic.RestartRun;
         RestartStep             = f_basic.RestartStep;
-
 	//initialize interface and velocity
+	FT_ReadSpaceDomain(in_name,&f_basic);
+        FT_StartUp(&front,&f_basic);
+        FT_InitDebug(in_name);
+
+	level_func_pack.pos_component = 2;
         FT_InitIntfc(&front,&level_func_pack);
-	double center[MAXD];        // Center of the sphere
-        double R[MAXD];
-  	center[0] = center[1] = center[2] = 0.30;
-            R[0] = R[1] = R[2] = 0.05;	
-	FT_MakeEllipticSurf(&front,center,R,
-                        1,2,    // negative and positive components
-                        FIRST_PHYSICS_WAVE_TYPE,
-                        1,      // refinement level
-                        &surf);
 
-	const double vel1[] = {-0.2,-0.2,-0.2};
-	//initialize velocity function to straight_velocity
-	initSurfaceState(surf,vel1);
-
-	center[0] = center[1] = center[2] = 0.20;
-            R[0] = R[1] = R[2] = 0.05;
-        FT_MakeEllipticSurf(&front,center,R,
-                        1,2,    // negative and positive components
-                        FIRST_PHYSICS_WAVE_TYPE,
-                        1,      // refinement level
-                        &surf);
-
-	const double vel2[] = {0.2,0.2,0.2};
-	initSurfaceState(surf,vel2);
+	FT_ReadTimeControl(in_name,&front);
+	
+	//Custom function for test
+	initTestModule(front,in_name);
 
 	front.vfunc = NULL;
 	//PointPropagationFunction(&front) = fourth_order_point_propagate;
@@ -86,12 +66,12 @@ static  void propagation_driver(
 	collision_solver->setRoundingTolerance(0.000001);
 	collision_solver->setFabricThickness(0.001);
 
-        front->max_time = 5;
+        /*front->max_time = 5;
         front->max_step = 50;
         front->print_time_interval = 0.5;
-        front->movie_frame_interval = 0.01;
+        front->movie_frame_interval = 0.01;*/
 
-        CFL = Time_step_factor(front) = 0.75;
+        CFL = Time_step_factor(front);
 	Tracking_algorithm(front) = STRUCTURE_TRACKING;
 
 	Frequency_of_redistribution(front,GENERAL_WAVE) = 100000;
@@ -234,3 +214,48 @@ static void collision_point_propagate(
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */
 
+static void initTestModule(Front &front, char* in_name)
+{
+	FILE* infile = fopen(in_name,"r");
+	char mesg[100];
+	CursorAfterString(infile,"Enter problem type: ");	
+	fscanf(infile,"%s",mesg);
+        (void) printf("%s\n",mesg);
+	if (mesg[0] == 'B' || mesg[0] == 'b')
+	    initBallToBall(front);
+	else
+        {
+	    std::cout << "Unknown problem type" << mesg << std::endl;
+	    clean_up(ERROR);
+	}
+}
+
+static void initBallToBall(Front& front)
+{
+	double center[MAXD];        // Center of the sphere
+        double R[MAXD];
+	SURFACE* surf;
+  	center[0] = center[1] = center[2] = 0.30;
+            R[0] = R[1] = R[2] = 0.05;	
+	FT_MakeEllipticSurf(&front,center,R,
+                        1,2,    // negative and positive components
+                        FIRST_PHYSICS_WAVE_TYPE,
+                        1,      // refinement level
+                        &surf);
+
+	const double vel1[] = {-0.2,-0.2,-0.2};
+	//initialize velocity function to straight_velocity
+	initSurfaceState(surf,vel1);
+
+	center[0] = center[1] = center[2] = 0.20;
+            R[0] = R[1] = R[2] = 0.05;
+        FT_MakeEllipticSurf(&front,center,R,
+                        1,2,    // negative and positive components
+                        FIRST_PHYSICS_WAVE_TYPE,
+                        1,      // refinement level
+                        &surf);
+
+	const double vel2[] = {0.2,0.2,0.2};
+	initSurfaceState(surf,vel2);
+
+}

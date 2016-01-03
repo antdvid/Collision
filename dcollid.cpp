@@ -199,12 +199,7 @@ void CollisionSolver3d::detectCollision()
 	    if (++niter > MAX_ITER) break;
 	}
 	if (is_collision) 
-	{
-	    std::cout << "Resolve collision failed in " << MAX_ITER
-		      << " iterations, computeImpactZone()"
-		      << std::endl;
 	    computeImpactZone();
-	}
 }
 
 void CollisionSolver3d::turnOffImpZone(){s_detImpZone = false;}
@@ -236,7 +231,7 @@ void CollisionSolver3d::computeImpactZone()
 	    updateImpactZoneVelocity(numZones);
             std::cout <<"    #"<<niter++ << ": " << triPairList.size()
                       << " pair of collision tris" << std::endl;
-	    std::cout <<"    ## "<< numZones
+	    std::cout <<"    # "<< numZones
 		      <<" zones of impact" << std::endl;
         }
 	turnOffImpZone();
@@ -580,7 +575,7 @@ static bool isCoplanar(POINT* pts[], const double h, const double dt, double roo
 		B = (A == 0) ? 0.0 : Q/A;
 		roots[0] = (A+B)-a/3.0;
 		if (A == B)
-		    roots[1] = roots[2] = -0.5*(A+B)-a/3.0; //multiply roots
+		    roots[1] = roots[2] = -0.5*(A+B)-a/3.0; //multiple roots
 		else
 		    roots[1] = roots[2] = -1; //complex roots, discard
 	    }
