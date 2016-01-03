@@ -14,9 +14,10 @@ typedef Kernel::Triangle_3                                    Triangle_3;
 
 //define default parameters for collision detection
 const double EPS = 0.000001;
+const double DT  = 0.001;
 double CollisionSolver::s_eps = EPS;
 double CollisionSolver::s_thickness = 0.001;
-double CollisionSolver::s_dt = 0.001;
+double CollisionSolver::s_dt = DT;
 double CollisionSolver::s_k = 1000;
 double CollisionSolver::s_m = 0.01;
 double CollisionSolver::s_lambda = 0.02;
@@ -24,7 +25,7 @@ bool   CollisionSolver3d::s_detImpZone = false;
 
 double traitsForProximity::s_eps = EPS;
 double traitsForCollision::s_eps = EPS;
-double traitsForCollision::s_dt = 0.001;
+double traitsForCollision::s_dt = DT;
 
 //functions in the abstract base class
 //set rounding tolerance
@@ -253,7 +254,7 @@ void CollisionSolver3d::updateImpactZoneVelocity(int &numZones)
 		pt = Point_of_tri(*it)[i];
 		//skip traversed or isolated pts
 		if (sorted(pt) ||
-		    weight(pt) == 1) continue;
+		    weight(findSet(pt)) == 1) continue;
 		else{
 		    updateImpactListVelocity(findSet(pt));
 		    numZones++;
@@ -278,6 +279,7 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 	double I[3][3] = {0.0}; //inertia tensor
 	double tmp[3][3];
 	int num_pts = 0;
+
 	while(p){
 		num_pts++; //debug
 		sorted(p) = YES;
@@ -366,7 +368,6 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 			I[2][0],I[2][1],I[2][2]);
 			printf("xF = %f %f %f, xR = %f %f %f\n",
 			xF[0],xF[1],xF[2],xR[0],xR[1],xR[2]);
-			clean_up(0);
 		}
 	    }
 	    p = next_pt(p);
@@ -1280,7 +1281,7 @@ inline POINT*& next_pt(POINT* p){
 }
 
 inline POINT*& tail(POINT* p){
-	STATE* sl = (STATE*)left_state(findSet(p));
+	STATE* sl = (STATE*)left_state(p);
 	return sl->impZone.tail;
 }
 
@@ -1312,6 +1313,7 @@ static POINT* findSet(POINT* p){
 static void mergePoint(POINT* X, POINT* Y){
 	POINT* PX = findSet(X);
 	POINT* PY = findSet(Y);
+	STATE* s1, *s2;
 	if (PX == PY) return;
 	if (weight(PX) > weight(PY)){
 	    //update root after merge
