@@ -5,13 +5,21 @@
 typedef std::pair<TRI*,TRI*> TRI_PAIR;
 typedef std::pair<BOND*,BOND*> BOND_PAIR;
 
+struct UF{
+	POINT* next_pt;
+	POINT* root;
+	POINT* tail;
+	int num_pts;
+};
+
 struct STATE{
 	double vel[3];
 	double collsnImpulse[3];
 	double friction[3];
 	double avgVel[3];
 	double x_old[3];
-	int collsn_num;
+	int    collsn_num;
+	UF     impZone;
 };
 
 //box traits structure for proximity detection 
@@ -109,10 +117,13 @@ struct reportCollision{
 //abstract base class for collision detection and handling
 class CollisionSolver {
 private:
-	//rounding tolerance
+	//global parameters
 	static double s_eps;
 	static double s_thickness;
 	static double s_dt;
+	static double s_m;
+	static double s_k;
+	static double s_lambda;
 protected:
 	Front *front;
 public:
@@ -122,6 +133,12 @@ public:
 	static double getFabricThickness();
 	static void setTimeStepSize(double);
 	static double getTimeStepSize();
+	static void setSpringConstant(double);
+	static double getSpringConstant();
+	static void setFrictionConstant(double);
+	static double getFrictionConstant();
+	static void setPointMass(double);
+	static double getPointMass();
 	virtual ~CollisionSolver() {}; //virtual destructor
 	//pure virtual functions
 	virtual void assembleFromInterface(const INTERFACE*,double dt) = 0;
@@ -160,11 +177,14 @@ private:
 	std::vector<TRI*> trisList;
 	//tri pairs
 	std::vector<TRI_PAIR> triPairList;
+	static bool s_detImpZone;
 	void computeAverageVelocity();
 	void updateAverageVelocity();
 	void updateFinalVelocity();
 	void updateFinalPosition();
 	void computeImpactZone();
+	void updateImpactZoneVelocity(int&);
+	void updateImpactListVelocity(POINT*);
 public:
 	void assembleFromInterface(const INTERFACE*,double dt);
 	void recordOriginVelocity();
@@ -176,4 +196,44 @@ public:
 	void gviewplotPairList(const char*);
 	void gviewplotPair(const char *);
 	void getTriPairList(std::vector<TRI_PAIR>&);
+	static void turnOffImpZone();
+	static void turnOnImpZone();
+	static bool getImpZoneStatus();
 };
+
+#if defined(isnan)
+#undef isnan
+#endif
+
+#define DEBUGGING false
+
+static bool trisIntersect(const TRI* a, const TRI* b);
+static bool TriToTri(const TRI* tri1, const TRI* tri2, double h);
+static bool PointToTri(POINT** pts, double h);
+static bool EdgeToEdge(POINT** pts, double h);
+static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
+static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
+
+static bool isCoplanar(POINT*[], const double, const double, double[]);
+static bool MovingTriToTri(const TRI*,const TRI*,double);
+static bool MovingPointToTri(POINT*[],const double);
+static bool MovingEdgeToEdge(POINT*[],const double);
+
+static void Pts2Vec(const POINT* p1, const POINT* p2, double* v);
+static void scalarMult(double a,double* v, double* ans);
+static void addVec(double* v1, double* v2, double* ans);
+static void minusVec(double* v1, double* v2, double* ans);
+static double distBetweenCoords(double* v1, double* v2);
+static void unsort_surf_point(SURFACE *surf);
+static void unsortTriList(std::vector<TRI*>&);
+static bool isRigidBody(TRI*);
+static void gviewplotTriPair(const char[], const TRI_PAIR&);
+
+static void makeSet(std::vector<TRI*>&);
+static POINT* findSet(POINT*);
+static void mergePoint(POINT*,POINT*);
+static void createImpZone(POINT*[],int);
+inline int& weight(POINT*);
+inline POINT*& root(POINT*);
+inline POINT*& next_pt(POINT*);
+inline POINT*& tail(POINT*);

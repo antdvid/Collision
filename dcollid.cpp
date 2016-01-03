@@ -8,79 +8,55 @@
 #include <FronTier.h>
 #include "collid.h"
 
-static bool trisIntersect(const TRI* a, const TRI* b);
-static bool TriToTri(const TRI* tri1, const TRI* tri2, double h);
-static bool PointToTri(POINT** pts, double h);
-static bool EdgeToEdge(POINT** pts, double h);
-static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
-static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
-
-static bool isCoplanar(POINT*[], const double, const double, double[]);
-static bool MovingTriToTri(const TRI*,const TRI*,double);
-static bool MovingPointToTri(POINT*[],const double);
-static bool MovingEdgeToEdge(POINT*[],const double);
-
-static void Pts2Vec(const POINT* p1, const POINT* p2, double* v);
-static void scalarMult(double a,double* v, double* ans);
-static void addVec(double* v1, double* v2, double* ans);
-static double distBetweenCoords(double* v1, double* v2);
-static void unsort_surf_point(SURFACE *surf);
-static void unsortTriList(std::vector<TRI*>&);
-static bool isRigidBody(TRI*);
-
-#if defined(isnan)
-#undef isnan
-#endif
-
 typedef CGAL::Exact_predicates_inexact_constructions_kernel   Kernel;
 typedef Kernel::Point_3                                       Point_3;
 typedef Kernel::Triangle_3                                    Triangle_3;
 
-//define rounding tolerance for collision detection
+//define default parameters for collision detection
 const double EPS = 0.000001;
 double CollisionSolver::s_eps = EPS;
 double CollisionSolver::s_thickness = 0.001;
 double CollisionSolver::s_dt = 0.001;
+double CollisionSolver::s_k = 1000;
+double CollisionSolver::s_m = 0.01;
+double CollisionSolver::s_lambda = 0.02;
+bool   CollisionSolver3d::s_detImpZone = false;
+
 double traitsForProximity::s_eps = EPS;
 double traitsForCollision::s_eps = EPS;
 double traitsForCollision::s_dt = 0.001;
 
 //functions in the abstract base class
 //set rounding tolerance
-void CollisionSolver::setRoundingTolerance(double neweps)
-{
+void CollisionSolver::setRoundingTolerance(double neweps){
 	s_eps = neweps;
 	traitsForProximity::s_eps = neweps;	
 	traitsForCollision::s_eps = neweps;
 }
-
-double CollisionSolver::getRoundingTolerance()
-{
-	return s_eps;
-}
+double CollisionSolver::getRoundingTolerance(){return s_eps;}
 
 //set fabric thickness
-void CollisionSolver::setFabricThickness(double h)
-{
-	s_thickness = h;
-}
-
-double CollisionSolver::getFabricThickness()
-{
-	return s_thickness;
-}
+void CollisionSolver::setFabricThickness(double h){s_thickness = h;}
+double CollisionSolver::getFabricThickness(){return s_thickness;}
 
 //this function should be called at every time step
-void CollisionSolver::setTimeStepSize(double new_dt)
-{
+void CollisionSolver::setTimeStepSize(double new_dt){	
 	s_dt = new_dt;
 	traitsForCollision::s_dt = new_dt;
 }
+double CollisionSolver::getTimeStepSize(){return s_dt;}
 
-double CollisionSolver::getTimeStepSize()
-{
-	return s_dt;
-}
+//set spring constant
+void   CollisionSolver::setSpringConstant(double new_k){s_k = new_k;}
+double CollisionSolver::getSpringConstant(){return s_k;}
+
+//set spring friction 
+void   CollisionSolver::setFrictionConstant(double new_la){s_lambda = new_la;}
+double CollisionSolver::getFrictionConstant(){return s_lambda;}
+
+//set mass of fabric point
+void   CollisionSolver::setPointMass(double new_m){s_m = new_m;}
+double CollisionSolver::getPointMass(){return s_m;}
 
 //functions in CollisionSolver3d
 //assemble tris list from input intfc
@@ -138,9 +114,9 @@ void CollisionSolver3d::computeAverageVelocity(){
 		}
             }
         }
-	//restore coords of points to old coords
+	//restore coords of points to old coords !!!
 	//x_old is the only valid coords for each point 
-	//Coords(point) is for temperatory judgement
+	//Coords(point) is for temporary judgement
 	for (std::vector<TRI*>::iterator it = trisList.begin();
                 it != trisList.end(); ++it){
             for (int i = 0; i < 3; ++i){
@@ -206,7 +182,7 @@ void CollisionSolver3d::detectProximity()
 void CollisionSolver3d::detectCollision()
 {
 	bool is_collision = true; 
-	const int MAX_ITER = 100;
+	const int MAX_ITER = 2;
 	int niter = 0;
 
 	std::cout<<"Starting collision handling: "<<std::endl;
@@ -219,20 +195,183 @@ void CollisionSolver3d::detectCollision()
 	    updateAverageVelocity();
 	    std::cout<<"    #"<<niter << ": " << triPairList.size() 
 		     << " pair of collision tris" << std::endl;
-	    if (niter++ > MAX_ITER) break;
+	    if (++niter > MAX_ITER) break;
 	}
-	if (is_collision) computeImpactZone();
+	if (is_collision) 
+	{
+	    std::cout << "Resolve collision failed in " << MAX_ITER
+		      << " iterations, computeImpactZone()"
+		      << std::endl;
+	    computeImpactZone();
+	}
 }
 
+void CollisionSolver3d::turnOffImpZone(){s_detImpZone = false;}
+void CollisionSolver3d::turnOnImpZone(){s_detImpZone = true;}
+bool CollisionSolver3d::getImpZoneStatus(){ return s_detImpZone;}
 //this function is needed if collision still happens
 //after several iterations;
 void CollisionSolver3d::computeImpactZone()
 {
-	printf("Resolve collision failed, computeImpactZone()\n");
-	gviewplotPairList("tri_pair_list");
-	gviewplotPair("tri_pair_list");
-	clean_up(0);
+	bool is_collision = true;
+        int numZones = 0;
+	int niter = 0;
+
+        std::cout<<"Starting compute Impact Zone: "<<std::endl;
+	turnOnImpZone();
+	makeSet(trisList);             
+        while(is_collision){
+            is_collision = false;
+            triPairList.clear();
+
+	    //start UF alogrithm
+	    //merge four pts if collision happens
+
+	    CGAL::box_self_intersection_d(trisList.begin(),
+                  trisList.end(),reportCollision<TRI*>(triPairList,is_collision),
+                  traitsForCollision());
+
+            updateAverageVelocity();
+	    updateImpactZoneVelocity(numZones);
+            std::cout <<"    #"<<niter++ << ": " << triPairList.size()
+                      << " pair of collision tris" << std::endl;
+	    std::cout <<"    ## "<< numZones
+		      <<" zones of impact" << std::endl;
+        }
+	turnOffImpZone();
 	return;
+}
+
+void CollisionSolver3d::updateImpactZoneVelocity(int &numZones)
+{
+	POINT* pt;
+	numZones = 0;
+	unsortTriList(trisList);
+	for (std::vector<TRI*>::iterator it = trisList.begin();
+	     it != trisList.end(); ++it){
+	    for (int i = 0; i < 3; ++i){
+		pt = Point_of_tri(*it)[i];
+		//skip traversed or isolated pts
+		if (sorted(pt) ||
+		    weight(pt) == 1) continue;
+		else{
+		    updateImpactListVelocity(findSet(pt));
+		    numZones++;
+		}
+	    }
+	}	
+}
+
+inline double myDet3d(double a[3][3]){
+    return  a[0][0]*(a[1][1]*a[2][2] - a[2][1]*a[1][2]) 
+	  - a[0][1]*(a[1][0]*a[2][2] - a[2][0]*a[1][2]) 
+	  + a[0][2]*(a[1][0]*a[2][1] - a[2][0]*a[1][1]);
+}
+
+void CollisionSolver3d::updateImpactListVelocity(POINT* head){
+	STATE* sl = NULL;
+	POINT* p = head;
+	double m = getPointMass();
+	double total_m = 0.0;
+	double x_cm[3] = {0.0}, v_cm[3] = {0.0};
+	double L[3] = {0.0}; //angular momentum
+	double I[3][3] = {0.0}; //inertia tensor
+	double tmp[3][3];
+	int num_pts = 0;
+	while(p){
+		num_pts++; //debug
+		sorted(p) = YES;
+		sl = (STATE*)left_state(p);
+		for (int i = 0; i < 3; ++i){
+		    x_cm[i] += m*sl->x_old[i]; 
+		    v_cm[i] += m*sl->avgVel[i];
+		}
+		total_m += m;
+                p = next_pt(p);
+        }
+	//compute center and veclocity of impact Zone
+	for (int i = 0; i < 3; ++i){
+	    x_cm[i] /= total_m;
+	    v_cm[i] /= total_m;
+	}
+
+	//compute angular momentum
+	p = head;
+	while(p){
+	    double dx[3], dv[3], Li[3];
+	    sl = (STATE*)left_state(p);
+	    minusVec(sl->x_old,x_cm,dx);
+	    minusVec(sl->avgVel,v_cm,dv); 	
+	    Cross3d(dx,dv,Li);
+	    scalarMult(m,Li,Li);
+	    addVec(Li,L,L);    
+	    p = next_pt(p);
+	}
+	//compute Inertia tensor
+	p = head;
+	while(p){
+	    double dx[3], mag_dx = 0.0;
+	    sl = (STATE*)left_state(p);
+	    minusVec(sl->x_old,x_cm,dx);
+	    mag_dx = Mag3d(dx);
+	    for (int i = 0; i < 3; ++i)
+	    for (int j = 0; j < 3; ++j){
+		tmp[i][j] = -dx[i]*dx[j];
+		if (i == j)
+		    tmp[i][j] += mag_dx*mag_dx; 
+	 	I[i][j] += tmp[i][j]*m;
+	    } 
+	    p = next_pt(p);
+	}
+
+	//compute angular velocity w: I*w = L;
+	double w[3], mag_w = 0;
+	for (int i = 0; i < 3; ++i){
+	    memcpy(tmp,I,9*sizeof(double));
+	    for (int j = 0; j < 3; j++)
+		tmp[j][i] = L[j];
+	    w[i] = myDet3d(tmp)/myDet3d(I);
+	}
+	mag_w = Mag3d(w);
+	
+	//compute average velocity for each point
+	double dt = getTimeStepSize();
+	p = head;
+        while(p){
+	    double x_new[3],dx[3];
+	    double xF[3], xR[3];
+	    sl = (STATE*)left_state(p);
+	    minusVec(sl->x_old,x_cm,dx);
+	    scalarMult(Dot3d(dx,w)/Dot3d(w,w),w,xF);
+	    minusVec(dx,xF,xR);
+	    for (int i = 0; i < 3; ++i)
+	    {
+		double wxR[3],tmpV[3];
+		scalarMult(sin(dt*mag_w)/mag_w,w,tmpV);
+		Cross3d(tmpV,xR,wxR);
+	    	x_new[i] = x_cm[i] + dt*v_cm[i]
+			 + xF[i] + cos(dt*mag_w)*xR[i]
+			 + wxR[i];
+		STATE* sl = (STATE*)left_state(p);
+		sl->avgVel[i] = (x_new[i] - sl->x_old[i])/dt;
+	    	if (isnan(sl->avgVel[i]))
+		{ 
+			printf("num_pts = %d, weight = %d\n",
+			num_pts,weight(head));
+			printf("nan vel, w = %f, mag_w = %f\n",
+			w[i],mag_w);
+			printf("L = [%f %f %f]\n",L[0],L[1],L[2]);
+			printf("I = [%f %f %f;  %f %f %f; %f %f %f]\n",
+			I[0][0],I[0][1],I[0][2],I[1][0],I[1][1],I[1][2],
+			I[2][0],I[2][1],I[2][2]);
+			printf("xF = %f %f %f, xR = %f %f %f\n",
+			xF[0],xF[1],xF[2],xR[0],xR[1],xR[2]);
+			clean_up(0);
+		}
+	    }
+	    p = next_pt(p);
+	}
+	//done!!!
 }
 
 //resolve collision in the input tris list
@@ -298,6 +437,7 @@ extern bool isProximity(const TRI* a, const TRI* b){
 //or between two moving edges 
 static bool MovingTriToTri(const TRI* a,const TRI* b, const double h)
 {
+	bool is_detImpZone = CollisionSolver3d::getImpZoneStatus();
 	POINT* pts[4];
 	bool status = false;
 	//detect point to tri collision
@@ -306,11 +446,15 @@ static bool MovingTriToTri(const TRI* a,const TRI* b, const double h)
 	    	pts[j] = Point_of_tri(b)[j];
 	    pts[3] = Point_of_tri(a)[i];
 	    if(MovingPointToTri(pts,h)) status = true;
+	    if (status && is_detImpZone)
+		createImpZone(pts,4);
 
 	    for (int j = 0; j < 3; ++j)
 		pts[j] = Point_of_tri(a)[j];
 	    pts[3] = Point_of_tri(b)[i];
 	    if(MovingPointToTri(pts,h)) status = true;
+	    if (status && is_detImpZone)
+		createImpZone(pts,4);
 	}
 
 	//detect edge to edge collision
@@ -322,9 +466,16 @@ static bool MovingTriToTri(const TRI* a,const TRI* b, const double h)
                 pts[2] = Point_of_tri(b)[j];
                 pts[3] = Point_of_tri(b)[(j+1)%3];
                 if(MovingEdgeToEdge(pts,h)) status = true;
+	        if (status && is_detImpZone)
+		    createImpZone(pts,4);
 	    }
         }
 	return status;
+}
+
+static void createImpZone(POINT* pts[], int num = 4){
+	for (int i = 0; i < num-1; ++i)
+	    mergePoint(pts[i],pts[i+1]); 
 }
 
 static bool MovingPointToTri(POINT* pts[],const double h){
@@ -543,11 +694,12 @@ static bool EdgeToEdge(POINT** pts, double h)
 	nor_mag = Mag3d(nor);
 	if (nor_mag == 0)
 	{
-	    //v1 == v2; dist == 0
+	    //v1 == v2; 
 	    //two edges intersect with each other
 	    //normal direction is relative velocity
-	    printf("Edge intersects with edge, nor = %f, dist = %f\n",
-		    nor_mag, dist);
+	    if (DEBUGGING)
+	    printf("Edge intersects with edge, nor = %f\n",
+		    nor_mag);
 	    STATE* sl[4];
 	    for (int j = 0; j < 4; ++j)
 	    {
@@ -568,6 +720,11 @@ static bool EdgeToEdge(POINT** pts, double h)
 	dist = distBetweenCoords(v1,v2);
 	if (dist > 0.1 * h)
 	    return false;
+	if (DEBUGGING){
+	std::cout<<"edge to edge collision" << std::endl;
+	printf("nor = %f %f %f, a = %f, b = %f, dist = %f\n",
+		nor[0],nor[1],nor[2],a,b,dist);
+	}
 	EdgeToEdgeImpulse(pts, nor, a, b, dist);
 	return true;
 }
@@ -619,6 +776,11 @@ static bool PointToTri(POINT** pts, double h)
 	    if (w[i] > 1+h || w[i] < -h) //h should be h/clength, clength is too small 
 		return false;
 	}
+	if (DEBUGGING){
+		std::cout<<"point to tri collision" << std::endl;
+		printf("nor = %f %f %f, w = [%f %f %f], dist = %f\n",
+		 	nor[0],nor[1],nor[2],w[0],w[1],w[2],dist);
+	}
 	PointToTriImpulse(pts, nor, w, dist);
 	return true;
 }
@@ -634,8 +796,11 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 	}
 	double v_rel[3] = {0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 500, m = 0.01,lambda = 0.02;
-	double dt = CollisionSolver::getTimeStepSize();
+	double k = 500, m = 0.01,lambda = 0.02, dt;
+	k      = CollisionSolver::getSpringConstant();
+	m      = CollisionSolver::getPointMass();
+	dt     = CollisionSolver::getTimeStepSize();
+	lambda = CollisionSolver::getFrictionConstant(); 
 
 	/* it is supposed to use the average velocity*/
 	for (int i = 0; i < 3; ++i)
@@ -689,8 +854,11 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	}
 	double v_rel[3] = {0.0, 0.0, 0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k = 500, m = 0.01, lambda = 0.02;
-	double dt = CollisionSolver::getTimeStepSize();
+	double k = 500, m = 0.01, lambda = 0.02, dt;
+	k      = CollisionSolver::getSpringConstant();
+	m      = CollisionSolver::getPointMass();
+	dt     = CollisionSolver::getTimeStepSize();
+	lambda = CollisionSolver::getFrictionConstant(); 
 
 	/* it is supposed to use the average velocity*/
 	for (int j = 0; j < 3; ++j)
@@ -755,7 +923,8 @@ void CollisionSolver3d::updateFinalPosition()
 	for (std::vector<TRI*>::iterator it = trisList.begin();
 	     it != trisList.end(); ++it)
 	{
-	    //if (isRigidBody(*it)) continue;
+	    if (isRigidBody(*it)) 
+		continue;
 	    for (int i = 0; i < 3; ++i){
 		pt = Point_of_tri(*it)[i];
 		sl = (STATE*)left_state(pt);
@@ -798,8 +967,11 @@ void CollisionSolver3d::updateAverageVelocity()
 	double* maxVel = NULL;
 
 	/*debugging*/
+	if (DEBUGGING)
 	if (n == 1){
-	    printf("tri ");
+	    printf("tri %p and %p intersect\n",
+	    (void*)triPairList[0].first,(void*)triPairList[0].second);
+	    gviewplotTriPair("triPair",triPairList[0]);
 	}
 
 	unsortTriList(trisList);
@@ -864,6 +1036,7 @@ void CollisionSolver3d::updateAverageVelocity()
 		sorted(p) = YES;
 	    }
 	}
+	if (DEBUGGING)
 	if (maxVel != NULL)
 	    printf("    max velocity = [%f %f %f]\n",maxVel[0],maxVel[1],maxVel[2]);
 }
@@ -1035,6 +1208,12 @@ static void addVec(double* v1, double* v2, double* ans)
 	    ans[i] = v1[i]+v2[i];
 }
 
+static void minusVec(double* v1, double* v2, double* ans)
+{
+	for (int i = 0; i < 3; ++i)
+	    ans[i] = v1[i]-v2[i];
+}
+
 static void scalarMult(double a,double* v, double* ans)
 {
 	for (int i = 0; i < 3; ++i)
@@ -1072,4 +1251,83 @@ static bool isRigidBody(TRI* tri){
 	if (wave_type(Hyper_surf(tri->surf)) == NEUMANN_BOUNDARY ||
 	    wave_type(Hyper_surf(tri->surf)) == MOVABLE_BODY_BOUNDARY)
 	    return true;
+	else
+	    return false;
 }
+
+static void gviewplotTriPair(const char dname[], const TRI_PAIR& tri_pair){
+	TRI **tris = new TRI*[2];
+	tris[0] = tri_pair.first;
+	tris[1] = tri_pair.second;
+	gview_plot_tri_list(dname,tris,2);
+	delete[] tris;
+}
+
+//functions for UF alogrithm
+inline int& weight(POINT* p){
+	STATE* sl = (STATE*)left_state(p);
+	return sl->impZone.num_pts;
+}
+
+inline POINT*& root(POINT* p){
+	STATE* sl = (STATE*)left_state(p);
+	return sl->impZone.root;
+}
+
+inline POINT*& next_pt(POINT* p){
+	STATE* sl = (STATE*)left_state(p);
+        return sl->impZone.next_pt;
+}
+
+inline POINT*& tail(POINT* p){
+	STATE* sl = (STATE*)left_state(findSet(p));
+	return sl->impZone.tail;
+}
+
+static void makeSet(std::vector<TRI*>& trisList){
+	STATE* sl;
+	POINT* pt;
+        for (std::vector<TRI*>::iterator it = trisList.begin();
+                it != trisList.end(); ++it){
+            for (int i = 0; i < 3; ++i){
+		pt = Point_of_tri(*it)[i];
+                sorted(pt) = NO;
+		sl = (STATE*)left_state(pt);
+		sl->impZone.next_pt = NULL;
+		sl->impZone.tail = pt;
+		sl->impZone.root = pt;
+		sl->impZone.num_pts = 1;
+            }
+        }
+}
+
+static POINT* findSet(POINT* p){
+	if (root(p) != p){
+		root(p) = findSet(root(p));
+	}
+	else
+	    return p;
+}
+
+static void mergePoint(POINT* X, POINT* Y){
+	POINT* PX = findSet(X);
+	POINT* PY = findSet(Y);
+	if (PX == PY) return;
+	if (weight(PX) > weight(PY)){
+	    //update root after merge
+	    weight(PX) += weight(PY);
+	    root(PY) = PX;
+	    //link two list, update tail
+	    next_pt(tail(PX)) = PY;
+	    tail(PX) = tail(PY); 
+	}
+	else{
+	    //update root after merge
+	    weight(PY) += weight(PX);
+	    root(PX) = PY;
+	    //link two list, update tail
+	    next_pt(tail(PY)) = PX;
+	    tail(PY) = tail(PX); 
+	}
+}
+//end of UF functions
