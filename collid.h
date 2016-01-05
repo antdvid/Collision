@@ -6,6 +6,7 @@
 typedef std::pair<TRI*,TRI*> TRI_PAIR;
 typedef std::pair<BOND*,BOND*> BOND_PAIR;
 /*
+user-defined state should include the following
 #ifndef FT_STATE
 #define FT_STATE
 struct UF{
@@ -92,26 +93,26 @@ extern bool isCollision(const TRI*,const TRI*);
 
 template <typename T>
 struct reportProximity{
-    std::vector<std::pair<T,T> > &output;
-    reportProximity(std::vector<TRI_PAIR> &pairList) : output(pairList) {}
+    int& num_pairs;
+    reportProximity(int &npair): num_pairs(npair = 0){}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const T &a, const T &b) {
-	if (isProximity(a,b))
-    	    output.push_back(std::make_pair<T,T>(a,b));
+	if(isProximity(a,b)){
+	    num_pairs++;
+	}
     }
 };
 
 template <typename T>
 struct reportCollision{
-    std::vector<std::pair<T,T> >& output;
     bool& is_collision;
-    reportCollision(std::vector<TRI_PAIR> &pairList,bool &status) 
-		   : output(pairList), is_collision(status) {}
+    int&  num_pairs;
+    reportCollision(bool &status, int &npairs) 
+		   : is_collision(status), num_pairs(npairs = 0) {}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const T &a, const T &b) {
-	if (isCollision(a,b))
-	{
-    	    output.push_back(std::make_pair<T,T>(a,b));
+	if (isCollision(a,b)){
+	    num_pairs ++;
 	    is_collision = true;
 	}
     }
@@ -148,10 +149,6 @@ public:
 	virtual void detectProximity() = 0;
 	virtual void detectCollision() = 0;
 	virtual void resolveCollision() = 0;
-	virtual void printProximity() = 0;
-	virtual void printCollision() = 0;
-	virtual void gviewplotPairList(const char*) = 0;
-	virtual void gviewplotPair(const char *) = 0;
 	virtual void recordOriginPosition() = 0;
 };
 
@@ -167,8 +164,6 @@ public:
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
-	void printProximity();
-	void printCollision();
 	void gviewplotPairList(const char*);
 	void gviewplotPair(const char *);
 	void getBondPairList(std::vector<std::pair<BOND*,BOND*> >&);
@@ -179,8 +174,6 @@ class CollisionSolver3d : public CollisionSolver {
 private:
 	//input tris
 	std::vector<TRI*> trisList;
-	//tri pairs
-	std::vector<TRI_PAIR> triPairList;
 	static bool s_detImpZone;
 	void computeAverageVelocity();
 	void updateAverageVelocity();
@@ -190,16 +183,18 @@ private:
 	void updateImpactZoneVelocity(int&);
 	void updateImpactListVelocity(POINT*);
 public:
+	//for debugging
+	static int moving_edg_to_edg;
+	static int moving_pt_to_tri;
+	static int is_coplanar;
+	static int edg_to_edg;
+	static int pt_to_tri;
+	static void printDebugVariable();
 	void assembleFromInterface(const INTERFACE*,double dt);
 	void recordOriginPosition();
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
-	void printProximity();
-	void printCollision();
-	void gviewplotPairList(const char*);
-	void gviewplotPair(const char *);
-	void getTriPairList(std::vector<TRI_PAIR>&);
 	static void turnOffImpZone();
 	static void turnOnImpZone();
 	static bool getImpZoneStatus();
@@ -218,20 +213,20 @@ static bool EdgeToEdge(POINT** pts, double h);
 static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
 static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
 
-static bool isCoplanar(POINT*[], const double, const double, double[]);
+static bool isCoplanar(POINT*[], const double, double[]);
 static bool MovingTriToTri(const TRI*,const TRI*,double);
 static bool MovingPointToTri(POINT*[],const double);
 static bool MovingEdgeToEdge(POINT*[],const double);
 
-static void Pts2Vec(const POINT* p1, const POINT* p2, double* v);
-static void scalarMult(double a,double* v, double* ans);
-static void addVec(double* v1, double* v2, double* ans);
-static void minusVec(double* v1, double* v2, double* ans);
-static double distBetweenCoords(double* v1, double* v2);
+inline void Pts2Vec(const POINT* p1, const POINT* p2, double* v);
+inline void scalarMult(double a,double* v, double* ans);
+inline void addVec(double* v1, double* v2, double* ans);
+inline void minusVec(double* v1, double* v2, double* ans);
+inline double distBetweenCoords(double* v1, double* v2);
 static void unsort_surface_point(SURFACE *surf);
 static void unsortTriList(std::vector<TRI*>&);
-static bool isRigidBody(TRI*);
-static bool isRigidBody(POINT*);
+static bool isRigidBody(const TRI*);
+static bool isRigidBody(const POINT*);
 static void gviewplotTriPair(const char[], const TRI_PAIR&);
 
 static void makeSet(std::vector<TRI*>&);
