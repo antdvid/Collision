@@ -1,10 +1,13 @@
 //collid3d.h
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/box_intersection_d.h>
+#include "../iFluid/ifluid_state.h"
 
 typedef std::pair<TRI*,TRI*> TRI_PAIR;
 typedef std::pair<BOND*,BOND*> BOND_PAIR;
-
+/*
+#ifndef FT_STATE
+#define FT_STATE
 struct UF{
 	POINT* next_pt;
 	POINT* root;
@@ -21,7 +24,7 @@ struct STATE{
 	int    collsn_num;
 	UF     impZone;
 };
-
+#endif*/
 //box traits structure for proximity detection 
 struct traitsForProximity{
 	typedef double 		NT;
@@ -149,6 +152,7 @@ public:
 	virtual void printCollision() = 0;
 	virtual void gviewplotPairList(const char*) = 0;
 	virtual void gviewplotPair(const char *) = 0;
+	virtual void recordOriginPosition() = 0;
 };
 
 //derived 2D-class for collision detection and handling
@@ -187,7 +191,7 @@ private:
 	void updateImpactListVelocity(POINT*);
 public:
 	void assembleFromInterface(const INTERFACE*,double dt);
-	void recordOriginVelocity();
+	void recordOriginPosition();
 	void detectProximity();
 	void detectCollision();
 	void resolveCollision();
@@ -224,9 +228,10 @@ static void scalarMult(double a,double* v, double* ans);
 static void addVec(double* v1, double* v2, double* ans);
 static void minusVec(double* v1, double* v2, double* ans);
 static double distBetweenCoords(double* v1, double* v2);
-static void unsort_surf_point(SURFACE *surf);
+static void unsort_surface_point(SURFACE *surf);
 static void unsortTriList(std::vector<TRI*>&);
 static bool isRigidBody(TRI*);
+static bool isRigidBody(POINT*);
 static void gviewplotTriPair(const char[], const TRI_PAIR&);
 
 static void makeSet(std::vector<TRI*>&);
@@ -237,3 +242,9 @@ inline int& weight(POINT*);
 inline POINT*& root(POINT*);
 inline POINT*& next_pt(POINT*);
 inline POINT*& tail(POINT*);
+
+void initSurfaceState(SURFACE*,const double*);
+void initTestModule(Front&, char*);
+static void initBalls(Front&);
+static void initPlane(Front&);
+

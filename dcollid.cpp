@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <FronTier.h>
 #include "collid.h"
+#include "../iFluid/ifluid_state.h"
 
 typedef CGAL::Exact_predicates_inexact_constructions_kernel   Kernel;
 typedef Kernel::Point_3                                       Point_3;
@@ -65,24 +66,40 @@ void CollisionSolver3d::assembleFromInterface(
 	const INTERFACE* intfc,const double dt)
 {
 	SURFACE** s;
-	TRI *tri;
+	TRI *tri, *sample_tri;
 	setTimeStepSize(dt);
 	trisList.clear();
 	triPairList.clear();
 	intfc_surface_loop(intfc,s)
 	{
 	    if (is_bdry(*s)) continue;
-	    unsort_surf_point(*s);
+	    unsort_surface_point(*s);
 	    surf_tri_loop(*s,tri)
 	    {
 	        trisList.push_back(tri);
+		if (wave_type(Hyper_surf(*s)) == ELASTIC_BOUNDARY)
+		{
+		    sample_tri = tri;
+	    	    POINT* p = Point_of_tri(sample_tri)[0];
+	    	    STATE* sl = (STATE*)left_state(p); 
+		}
 	    }
+	}
+	if (debugging("collision")){
+	    std::cout<<trisList.size()<<" number of tris is assembled"
+		     <<std::endl; 
+	    POINT* p = Point_of_tri(sample_tri)[0];
+	    printf("first tri coords = [%f %f %f]\n",
+		Coords(p)[0],Coords(p)[1],Coords(p)[2]);
+	    STATE* sl = (STATE*)left_state(p);
+	    printf("first tri vel = [%f %f %f]\n",
+		sl->vel[0],sl->vel[1],sl->vel[2]);
 	}
 }
 
 /*This function should be called before 
  *computing cloth internal dynamics*/
-void CollisionSolver3d::recordOriginVelocity(){
+void CollisionSolver3d::recordOriginPosition(){
 	POINT* pt;
 	STATE* sl, *sr;
 	for (std::vector<TRI*>::iterator it = trisList.begin();
@@ -101,6 +118,7 @@ void CollisionSolver3d::computeAverageVelocity(){
 	POINT* pt;
         STATE* sl; 
 	double dt = getTimeStepSize();
+	double max_speed = 0, *max_vel = NULL;
         for (std::vector<TRI*>::iterator it = trisList.begin();
                 it != trisList.end(); ++it){
             for (int i = 0; i < 3; ++i){
@@ -113,8 +131,18 @@ void CollisionSolver3d::computeAverageVelocity(){
 		    else
 		        sl->avgVel[j] = sl->vel[j];
 		}
+		if (debugging("collision"))
+		if (Mag3d(sl->avgVel) >= max_speed){
+		    max_speed = Mag3d(sl->avgVel);
+		    max_vel = sl->avgVel;
+		}
             }
         }
+	if (debugging("collision"))
+	    std::cout << "Largest average velocity is " 
+		      << max_vel[0] << " "
+		      << max_vel[1] << " "
+		      << max_vel[2] << std::endl; 
 	//restore coords of points to old coords !!!
 	//x_old is the only valid coords for each point 
 	//Coords(point) is for temporary judgement
@@ -335,6 +363,10 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 	double dt = getTimeStepSize();
 	p = head;
         while(p){
+	    if (isRigidBody(p)) {
+		p = next_pt(p);
+		continue;
+	    }
 	    double x_new[3],dx[3];
 	    double xF[3], xR[3];
 	    sl = (STATE*)left_state(p);
@@ -377,8 +409,11 @@ void CollisionSolver3d::resolveCollision()
 	POINT* pt;
 	pt = Point_of_tri(trisList[0])[0];
 	sl = (STATE*)left_state(pt);
+
+	start_clock("computeAverageVelocity");
 	//compute average velocity
 	computeAverageVelocity();
+	stop_clock("computeAverageVelocity");
 
 	//test proximity for tris on surfaces
 	detectProximity();
@@ -693,7 +728,7 @@ static bool EdgeToEdge(POINT** pts, double h)
 	    //v1 == v2; 
 	    //two edges intersect with each other
 	    //normal direction is relative velocity
-	    if (DEBUGGING)
+	    if (debugging("collision"))
 	    printf("Edge intersects with edge, nor = %f\n",
 		    nor_mag);
 	    STATE* sl[4];
@@ -716,7 +751,7 @@ static bool EdgeToEdge(POINT** pts, double h)
 	dist = distBetweenCoords(v1,v2);
 	if (dist > 0.1 * h)
 	    return false;
-	if (DEBUGGING){
+	if (debugging("collision")){
 	std::cout<<"edge to edge collision" << std::endl;
 	printf("nor = %f %f %f, a = %f, b = %f, dist = %f\n",
 		nor[0],nor[1],nor[2],a,b,dist);
@@ -772,7 +807,7 @@ static bool PointToTri(POINT** pts, double h)
 	    if (w[i] > 1+h || w[i] < -h) //h should be h/clength, clength is too small 
 		return false;
 	}
-	if (DEBUGGING){
+	if (debugging("collision")){
 		std::cout<<"point to tri collision" << std::endl;
 		printf("nor = %f %f %f, w = [%f %f %f], dist = %f\n",
 		 	nor[0],nor[1],nor[2],w[0],w[1],w[2],dist);
@@ -919,8 +954,6 @@ void CollisionSolver3d::updateFinalPosition()
 	for (std::vector<TRI*>::iterator it = trisList.begin();
 	     it != trisList.end(); ++it)
 	{
-	    if (isRigidBody(*it)) 
-		continue;
 	    for (int i = 0; i < 3; ++i){
 		pt = Point_of_tri(*it)[i];
 		sl = (STATE*)left_state(pt);
@@ -963,7 +996,7 @@ void CollisionSolver3d::updateAverageVelocity()
 	double* maxVel = NULL;
 
 	/*debugging*/
-	if (DEBUGGING)
+	if (debugging("collision"))
 	if (n == 1){
 	    printf("tri %p and %p intersect\n",
 	    (void*)triPairList[0].first,(void*)triPairList[0].second);
@@ -972,13 +1005,18 @@ void CollisionSolver3d::updateAverageVelocity()
 
 	unsortTriList(trisList);
 	for (int i = 0; i < n; ++i)
+	for (int l = 0; l < 2; ++l)
 	{
+	    TRI* tri = (l == 0) ? triPairList[i].first :
+				  triPairList[i].second;
 	    for (int j = 0; j < 3; ++j)
 	    {
-		p = Point_of_tri(triPairList[i].first)[j];
+		p = Point_of_tri(tri)[j];
+		if (isRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
 		sr = (STATE*)right_state(p);
+
 		if (sl->collsn_num > 0)
 		{
 		    for (int k = 0; k < 3; ++k)
@@ -1002,37 +1040,8 @@ void CollisionSolver3d::updateAverageVelocity()
 		//
 		sorted(p) = YES;
 	    }
-	    for (int j = 0; j < 3; ++j)
-	    {
-		p = Point_of_tri(triPairList[i].second)[j];
-		if (sorted(p)) continue;
-		sl = (STATE*)left_state(p);
-		sr = (STATE*)right_state(p);
-		if (sl->collsn_num > 0)
-		{
-		    for (int k = 0; k < 3; ++k)
-		    {
-			sl->avgVel[k] += (sl->collsnImpulse[k] + sl->friction[k])
-					 /sl->collsn_num;
-			if (isinf(sl->avgVel[k]) || isnan(sl->avgVel[k])) 
-			    printf("inf/nan vel[%d]: impulse = %f, friction = %f, collsn_num = %d\n",
-				k,sl->collsnImpulse[k],sl->friction[k],sl->collsn_num);
-			sr->avgVel[k] = sl->avgVel[k];
-			//reset impulse and friction to 0
-			//collision handling will recalculate the impulse
-			sl->collsnImpulse[k] = sl->friction[k] = 0.0;
-		    }
-		    sl->collsn_num = 0;
-		}
-		//debugging: print largest speed
-		double speed = Mag3d(sl->avgVel);
-		if (speed > maxSpeed)
-			maxVel = sl->avgVel;
-		//
-		sorted(p) = YES;
-	    }
 	}
-	if (DEBUGGING)
+	if (debugging("collision"))
 	if (maxVel != NULL)
 	    printf("    max velocity = [%f %f %f]\n",maxVel[0],maxVel[1],maxVel[2]);
 }
@@ -1216,7 +1225,7 @@ static void scalarMult(double a,double* v, double* ans)
             ans[i] = a*v[i];	
 }
 
-static void unsort_surf_point(SURFACE *surf)
+static void unsort_surface_point(SURFACE *surf)
 {
         TRI *tri;
         POINT *p;
@@ -1231,7 +1240,7 @@ static void unsort_surf_point(SURFACE *surf)
                 sorted(p) = NO;
             }
         }
-}       /* end unsort_surf_point */
+}       /* end unsort_surface_point */
 
 static void unsortTriList(std::vector<TRI*>& trisList){
 	POINT* pt;
@@ -1246,6 +1255,14 @@ static void unsortTriList(std::vector<TRI*>& trisList){
 static bool isRigidBody(TRI* tri){
 	if (wave_type(Hyper_surf(tri->surf)) == NEUMANN_BOUNDARY ||
 	    wave_type(Hyper_surf(tri->surf)) == MOVABLE_BODY_BOUNDARY)
+	    return true;
+	else
+	    return false;
+}
+
+static bool isRigidBody(POINT* pt){
+	if (wave_type(pt->hs) == NEUMANN_BOUNDARY ||
+	    wave_type(pt->hs) == MOVABLE_BODY_BOUNDARY)
 	    return true;
 	else
 	    return false;
