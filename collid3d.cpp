@@ -22,7 +22,6 @@ int main(int argc, char** argv)
         f_basic.size_of_intfc_state = sizeof(STATE);
 
         /* Initialize basic computational data */
-	
         in_name                 = f_basic.in_name;
         restart_state_name      = f_basic.restart_state_name;
         out_name                = f_basic.out_name;

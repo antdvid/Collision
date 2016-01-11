@@ -242,4 +242,5 @@ void initSurfaceState(SURFACE*,const double*);
 void initTestModule(Front&, char*);
 static void initBalls(Front&);
 static void initPlane(Front&);
-
+extern void testFunctions(POINT**,double);
+static void printPointList(POINT**, const int);
