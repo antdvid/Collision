@@ -117,6 +117,7 @@ void CollisionSolver3d::recordOriginPosition(){
 		sl = (STATE*)left_state(pt); 
 		for (int j = 0; j < 3; ++j)
 		    sl->x_old[j] = Coords(pt)[j];
+		sl->has_collsn = false;
 		if (isnan(sl->x_old[0])) std::cout<<"nan_x_old"<<std::endl;
 	    }
 	}
@@ -300,7 +301,6 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 		}
                 p = next_pt(p);
         }
-	printf("    num_pts = %d\n",num_pts);
 	//compute center and veclocity of impact Zone
 	for (int i = 0; i < 3; ++i){
 	    x_cm[i] /= num_pts;
@@ -446,6 +446,10 @@ void CollisionSolver3d::resolveCollision()
 	//test collision for tri pairs
 	detectCollision();
 	stop_clock("detectCollision");
+
+	start_clock("resolveSuperelast");
+	resolveSuperelast();
+	stop_clock("resolveSuperelast");
 
 	start_clock("updateFinalPosition");
 	//update position using average velocity
@@ -1089,11 +1093,13 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	double v_rel[3] = {0.0, 0.0, 0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k, m, lambda, dt;
+	double k, m, lambda, dt, h;
 	k      = CollisionSolver::getSpringConstant();
 	m      = CollisionSolver::getPointMass();
 	dt     = CollisionSolver::getTimeStepSize();
 	lambda = CollisionSolver::getFrictionConstant(); 
+	h      = CollisionSolver::getFabricThickness();
+	dist   = h - dist;
 
 	/* it is supposed to use the average velocity*/
 	for (int j = 0; j < 3; ++j)
@@ -1106,7 +1112,9 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    vt = sqrt(Dot3d(v_rel, v_rel) - sqr(vn));
 	else
 	    vt = 0.0;
-	impulse += vn * 0.5;
+
+	if (vn < 0.0)
+	    impulse += vn * 0.5;
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
@@ -1155,6 +1163,75 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 }
 
+bool CollisionSolver3d::resolveSuperelastOnce(int& num_edges)
+{
+	double dt = getTimeStepSize();
+	const double superelasTol = 0.10;
+	bool has_superelas = false;
+	num_edges = 0;
+	for (unsigned i = 0; i < trisList.size(); ++i){
+	    TRI* tri = trisList[i];
+	    if (isRigidBody(tri)) continue;
+	    for (int j = 0; j < 3; ++j){
+		POINT* p[2];
+		STATE* sl[2];
+		p[0] = Point_of_tri(tri)[j%3];	
+		p[1] = Point_of_tri(tri)[(j+1)%3];
+		sl[0]= (STATE*)left_state(p[0]);
+		sl[1]= (STATE*)left_state(p[1]);
+
+		double x_cand[2][3];
+		for (int k = 0; k < 2; ++k){
+		    double tmp[3];
+		    scalarMult(dt,sl[k]->avgVel,tmp);
+		    addVec(sl[k]->x_old,tmp,x_cand[k]);
+		}	
+		double len_new = distance_between_positions(x_cand[0],x_cand[1],3);
+		double len_old = distance_between_positions(sl[0]->x_old,sl[1]->x_old,3);
+		double len0 = tri->side_length0[j];
+		double vec[3], v_rel[3];
+
+		minusVec(sl[0]->x_old,sl[1]->x_old,vec);
+	        minusVec(sl[0]->avgVel,sl[1]->avgVel,v_rel);
+		if (len_old > ROUND_EPS && len_new > ROUND_EPS)
+		{
+		    scalarMult(1/len_old,vec,vec); //normalize
+		    double strain_rate = (len_new-len_old)/len_old;
+		    double strain = (len_new-len0)/len0;
+		    if (fabs(strain) > superelasTol || fabs(strain_rate) > superelasTol){
+			double vec_tmp[3], dv;
+			minusVec(x_cand[0],x_cand[1],vec_tmp);
+			scalarMult(1.0/len_new,vec_tmp,vec_tmp);
+			dv = fabs(len_new - (1.0+superelasTol)*len0)/(2.0*dt);
+			scalarMult(dv,vec_tmp,vec_tmp);
+			if (strain > 0.0) 
+			{
+			    minusVec(sl[0]->avgVel,vec_tmp,sl[0]->avgVel);
+			    addVec(sl[1]->avgVel,vec_tmp,sl[1]->avgVel);
+			}
+			else{
+			    minusVec(sl[1]->avgVel,vec_tmp,sl[1]->avgVel);
+			    addVec(sl[0]->avgVel,vec_tmp,sl[0]->avgVel);
+			}
+			num_edges ++;
+		        has_superelas = true;
+		    }
+		}
+		else
+		{
+		        double v_tmp[3];
+                        addVec(sl[0]->avgVel,sl[1]->avgVel,v_tmp);
+                        scalarMult(0.5,v_tmp,v_tmp);
+                        memcpy((void*)sl[0]->avgVel,(void*)v_tmp,3*sizeof(double)); 
+                        memcpy((void*)sl[1]->avgVel,(void*)v_tmp,3*sizeof(double));
+		        has_superelas = true;
+		}	
+	    }
+	}
+	if (!has_superelas) std::cout << "No overelongation at all" << std::endl;
+	return has_superelas;
+}
+
 void CollisionSolver3d::updateFinalPosition()
 {
 	POINT* pt;
@@ -1179,6 +1256,18 @@ void CollisionSolver3d::updateFinalPosition()
 	}
 }
 
+void CollisionSolver3d::resolveSuperelast()
+{
+	bool has_superelas = true;
+	int niter = 0, num_edges;
+	const int max_iter = 100;
+	std::cout<<"Start handle superelas: "<<std::endl;
+	while(has_superelas && niter++ < max_iter){
+	    has_superelas = resolveSuperelastOnce(num_edges);
+	    printf("  #%d: %d edges\n",niter,num_edges);
+	}
+}
+
 void CollisionSolver3d::updateFinalVelocity()
 {
 	//TODO:avgVel is actually the velocity at t(n+1/2)
@@ -1186,7 +1275,6 @@ void CollisionSolver3d::updateFinalVelocity()
 	//for simplicity now set v(n+1) = v(n+1/2)
 	POINT* pt;
 	STATE* sl;
-
 	//#pragma omp parallel for private(pt,sl)
 	for (std::vector<TRI*>::iterator it = trisList.begin();
              it < trisList.end(); ++it)
@@ -1194,9 +1282,12 @@ void CollisionSolver3d::updateFinalVelocity()
             for (int i = 0; i < 3; ++i){
                 pt = Point_of_tri(*it)[i];
                 sl = (STATE*)left_state(pt);
+		if (!sl->has_collsn) 
+		    continue;
                 for (int j = 0; j < 3; ++j){
+                    pt->vel[j] = sl->avgVel[j]-sl->impulse[j];
                     sl->vel[j] = sl->avgVel[j];
-		    if (isnan(sl->vel[j]))
+		    if (isnan(pt->vel[j]))
 			printf("nan vel and avgVel\n");
 		}
             }
@@ -1223,10 +1314,10 @@ void CollisionSolver3d::updateAverageVelocity()
 
 		if (sl->collsn_num > 0)
 		{
+		    sl->has_collsn = true;
 		    for (int k = 0; k < 3; ++k)
 		    {
-			sl->avgVel[k] += (sl->collsnImpulse[k] + sl->friction[k])
-					/sl->collsn_num;
+			sl->avgVel[k] += (sl->collsnImpulse[k] + sl->friction[k])/sl->collsn_num;
 			if (isinf(sl->avgVel[k]) || isnan(sl->avgVel[k])) 
 			{
 			    printf("inf/nan vel[%d]: impulse = %f, friction = %f, collsn_num = %d\n",

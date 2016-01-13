@@ -182,6 +182,8 @@ private:
 	void computeImpactZone();
 	void updateImpactZoneVelocity(int&);
 	void updateImpactListVelocity(POINT*);
+	void resolveSuperelast();
+	bool resolveSuperelastOnce(int&);
 public:
 	//for debugging
 	static int moving_edg_to_edg;
