@@ -446,15 +446,15 @@ void CollisionSolver3d::resolveCollision()
 	//test collision for tri pairs
 	detectCollision();
 	stop_clock("detectCollision");
-
-	start_clock("resolveSuperelast");
-	resolveSuperelast();
-	stop_clock("resolveSuperelast");
-
+	
 	start_clock("updateFinalPosition");
 	//update position using average velocity
 	updateFinalPosition();
 	stop_clock("updateFinalPosition");
+
+	start_clock("resolveSuperelast");
+	resolveSuperelast();
+	stop_clock("resolveSuperelast");
 
 	start_clock("updateFinalVelocity");
 	//update velocity using average velocity
@@ -1228,7 +1228,6 @@ bool CollisionSolver3d::resolveSuperelastOnce(int& num_edges)
 		}	
 	    }
 	}
-	if (!has_superelas) std::cout << "No overelongation at all" << std::endl;
 	return has_superelas;
 }
 
