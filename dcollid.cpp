@@ -1256,7 +1256,7 @@ void CollisionSolver3d::reduceSuperelast()
 	while(has_superelas && niter++ < max_iter){
 	    has_superelas = reduceSuperelastOnce(num_edges);
 	}
-	printf("  #%d: %d edges\n",niter,num_edges);
+	printf("    #%d: %d edges\n",niter,num_edges);
 }
 
 void CollisionSolver3d::updateFinalVelocity()
