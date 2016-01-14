@@ -452,9 +452,9 @@ void CollisionSolver3d::resolveCollision()
 	updateFinalPosition();
 	stop_clock("updateFinalPosition");
 
-	start_clock("resolveSuperelast");
-	resolveSuperelast();
-	stop_clock("resolveSuperelast");
+	start_clock("reduceSuperelast");
+	reduceSuperelast();
+	stop_clock("reduceSuperelast");
 
 	start_clock("updateFinalVelocity");
 	//update velocity using average velocity
@@ -1163,7 +1163,7 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 }
 
-bool CollisionSolver3d::resolveSuperelastOnce(int& num_edges)
+bool CollisionSolver3d::reduceSuperelastOnce(int& num_edges)
 {
 	double dt = getTimeStepSize();
 	const double superelasTol = 0.10;
@@ -1199,20 +1199,11 @@ bool CollisionSolver3d::resolveSuperelastOnce(int& num_edges)
 		    double strain_rate = (len_new-len_old)/len_old;
 		    double strain = (len_new-len0)/len0;
 		    if (fabs(strain) > superelasTol || fabs(strain_rate) > superelasTol){
-			double vec_tmp[3], dv;
-			minusVec(x_cand[0],x_cand[1],vec_tmp);
-			scalarMult(1.0/len_new,vec_tmp,vec_tmp);
-			dv = fabs(len_new - (1.0+superelasTol)*len0)/(2.0*dt);
-			scalarMult(dv,vec_tmp,vec_tmp);
-			if (strain > 0.0) 
-			{
-			    minusVec(sl[0]->avgVel,vec_tmp,sl[0]->avgVel);
-			    addVec(sl[1]->avgVel,vec_tmp,sl[1]->avgVel);
-			}
-			else{
-			    minusVec(sl[1]->avgVel,vec_tmp,sl[1]->avgVel);
-			    addVec(sl[0]->avgVel,vec_tmp,sl[0]->avgVel);
-			}
+			double v_tmp[3];
+			addVec(sl[0]->avgVel,sl[1]->avgVel,v_tmp);
+                        scalarMult(0.5,v_tmp,v_tmp);
+                        memcpy((void*)sl[0]->avgVel,(void*)v_tmp,3*sizeof(double)); 
+                        memcpy((void*)sl[1]->avgVel,(void*)v_tmp,3*sizeof(double));
 			num_edges ++;
 		        has_superelas = true;
 		    }
@@ -1224,6 +1215,7 @@ bool CollisionSolver3d::resolveSuperelastOnce(int& num_edges)
                         scalarMult(0.5,v_tmp,v_tmp);
                         memcpy((void*)sl[0]->avgVel,(void*)v_tmp,3*sizeof(double)); 
                         memcpy((void*)sl[1]->avgVel,(void*)v_tmp,3*sizeof(double));
+			num_edges ++;
 		        has_superelas = true;
 		}	
 	    }
@@ -1255,16 +1247,16 @@ void CollisionSolver3d::updateFinalPosition()
 	}
 }
 
-void CollisionSolver3d::resolveSuperelast()
+void CollisionSolver3d::reduceSuperelast()
 {
 	bool has_superelas = true;
 	int niter = 0, num_edges;
-	const int max_iter = 100;
+	const int max_iter = 50;
 	std::cout<<"Start handle superelas: "<<std::endl;
 	while(has_superelas && niter++ < max_iter){
-	    has_superelas = resolveSuperelastOnce(num_edges);
-	    printf("  #%d: %d edges\n",niter,num_edges);
+	    has_superelas = reduceSuperelastOnce(num_edges);
 	}
+	printf("  #%d: %d edges\n",niter,num_edges);
 }
 
 void CollisionSolver3d::updateFinalVelocity()
