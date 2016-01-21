@@ -10,6 +10,39 @@
 #include "../iFluid/ifluid_state.h"
 #include <omp.h>
 
+/*****declaration of static functions starts here********/
+static bool TriToTri(const TRI* tri1, const TRI* tri2, double h);
+static bool BondToBond(const BOND*,const BOND*,double);
+static bool TriToBond(const TRI*,const BOND*,double);
+static bool PointToTri(POINT** pts, double h);
+static bool EdgeToEdge(POINT** pts, double h);
+static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist);
+static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist);
+
+static bool isCoplanar(POINT*[], const double, double[]);
+static bool MovingTriToTri(const TRI*,const TRI*,double);
+static bool MovingBondToBond(const BOND*,const BOND*,double);
+static bool MovingTriToBond(const TRI*,const BOND*,double);
+static bool MovingPointToTri(POINT*[],const double);
+static bool MovingEdgeToEdge(POINT*[],const double);
+
+static void unsort_surface_point(SURFACE *surf);
+static void unsortHseList(std::vector<CD_HSE*>&);
+static bool isRigidBody(const CD_HSE*);
+static bool isRigidBody(const TRI*);
+static bool isRigidBody(const POINT*);
+static void printPointList(POINT**, const int);
+
+static void makeSet(std::vector<CD_HSE*>&);
+static POINT* findSet(POINT*);
+static void mergePoint(POINT*,POINT*);
+static void createImpZone(POINT*[],int);
+inline int& weight(POINT*);
+inline POINT*& root(POINT*);
+inline POINT*& next_pt(POINT*);
+inline POINT*& tail(POINT*);
+/*******************end of declaration*******************/
+
 typedef CGAL::Exact_predicates_inexact_constructions_kernel   Kernel;
 typedef Kernel::Point_3                                       Point_3;
 typedef Kernel::Triangle_3                                    Triangle_3;
@@ -26,9 +59,9 @@ double CollisionSolver::s_m = 0.01;
 double CollisionSolver::s_lambda = 0.02;
 bool   CollisionSolver3d::s_detImpZone = false;
 
-double traitsForProximity::s_eps = EPS;
-double traitsForCollision::s_eps = EPS;
-double traitsForCollision::s_dt = DT;
+template<> double traitsForProximity<3>::s_eps = EPS;
+template<> double traitsForCollision<3>::s_eps = EPS;
+template<> double traitsForCollision<3>::s_dt = DT;
 
 //debugging variables
 int CollisionSolver3d::moving_edg_to_edg = 0;
@@ -39,11 +72,17 @@ int CollisionSolver3d::pt_to_tri = 0;
 
 
 //functions in the abstract base class
+void CollisionSolver::clearHseList(){
+	for (unsigned i = 0; i < hseList.size(); ++i){
+		delete hseList[i];
+	}
+	hseList.clear();
+}
 //set rounding tolerance
 void CollisionSolver::setRoundingTolerance(double neweps){
 	s_eps = neweps;
-	traitsForProximity::s_eps = neweps;	
-	traitsForCollision::s_eps = neweps;
+	traitsForProximity<3>::s_eps = neweps;	
+	traitsForCollision<3>::s_eps = neweps;
 }
 double CollisionSolver::getRoundingTolerance(){return s_eps;}
 
@@ -54,7 +93,7 @@ double CollisionSolver::getFabricThickness(){return s_thickness;}
 //this function should be called at every time step
 void CollisionSolver::setTimeStepSize(double new_dt){	
 	s_dt = new_dt;
-	traitsForCollision::s_dt = new_dt;
+	traitsForCollision<3>::s_dt = new_dt;
 }
 double CollisionSolver::getTimeStepSize(){return s_dt;}
 
@@ -78,24 +117,37 @@ void CollisionSolver3d::assembleFromInterface(
 	//this function should be called before
 	//spring interior dynamics computed
 	SURFACE** s;
+	CURVE** c;
 	TRI *tri;
+	BOND *b;
+	int n_tri = 0, n_bond = 0;
 	setTimeStepSize(dt);
-	trisList.clear();
+	clearHseList();
 	intfc_surface_loop(intfc,s)
 	{
 	    if (is_bdry(*s)) continue;
 	    unsort_surface_point(*s);
 	    surf_tri_loop(*s,tri)
 	    {
-	        trisList.push_back(tri);
+	        hseList.push_back(new CD_TRI(tri));
+		n_tri++;
 	    }
 	}
-	recordOriginPosition();
+	intfc_curve_loop(intfc,c)
+	{
+	    if (is_bdry(*c)) continue; 
+	    curve_bond_loop(*c,b)
+	    {
+		hseList.push_back(new CD_BOND(b));
+		n_bond++;
+	    }
+	}
+	//recordOriginPosition();
 
 	if (debugging("collision")){
-	    std::cout<<trisList.size()<<" number of tris is assembled"
-		     <<std::endl; 
-	    POINT* p = Point_of_tri(trisList[0])[0];
+	    printf("%d num of tris, %d num of bonds\n",n_tri,n_bond);
+	    printf("%lu number of elements is assembled\n",hseList.size());
+	    POINT* p = hseList[0]->Point_of_hse(0);
 	    printf("first tri coords = [%f %f %f]\n",
 		Coords(p)[0],Coords(p)[1],Coords(p)[2]);
 	    STATE* sl = (STATE*)left_state(p);
@@ -110,10 +162,10 @@ void CollisionSolver3d::recordOriginPosition(){
 	start_clock("recordOriginPosition");
 
 	//#pragma omp parallel for private(pt,sl)
-	for (std::vector<TRI*>::iterator it = trisList.begin();
-	     it < trisList.end(); ++it){
-	    for (int i = 0; i < 3; ++i){
-		pt = Point_of_tri(*it)[i];
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+	     it < hseList.end(); ++it){
+	    for (int i = 0; i < (*it)->num_pts(); ++i){
+		pt = (*it)->Point_of_hse(i);
 		sl = (STATE*)left_state(pt); 
 		for (int j = 0; j < 3; ++j)
 		    sl->x_old[j] = Coords(pt)[j];
@@ -129,12 +181,11 @@ void CollisionSolver3d::computeAverageVelocity(){
         STATE* sl; 
 	double dt = getTimeStepSize();
 	double max_speed = 0, *max_vel = NULL;
-
 	//#pragma omp parallel for private(pt,sl)
-        for (std::vector<TRI*>::iterator it = trisList.begin();
-                it < trisList.end(); ++it){
-            for (int i = 0; i < 3; ++i){
-                pt = Point_of_tri(*it)[i];
+        for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+                it < hseList.end(); ++it){
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+                pt = (*it)->Point_of_hse(i);
                 sl = (STATE*)left_state(pt); 
                 for (int j = 0; j < 3; ++j)
 		{
@@ -166,10 +217,10 @@ void CollisionSolver3d::computeAverageVelocity(){
 	//x_old is the only valid coords for each point 
 	//Coords(point) is for temporary judgement
 	//#pragma omp parallel private(pt,sl)
-	for (std::vector<TRI*>::iterator it = trisList.begin();
-                it < trisList.end(); ++it){
-            for (int i = 0; i < 3; ++i){
-                pt = Point_of_tri(*it)[i];
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+                it < hseList.end(); ++it){
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+                pt = (*it)->Point_of_hse(i);
                 sl = (STATE*)left_state(pt);
                 for (int j = 0; j < 3; ++j)
                     Coords(pt)[j] =  sl->x_old[j];
@@ -180,8 +231,8 @@ void CollisionSolver3d::computeAverageVelocity(){
 void CollisionSolver3d::detectProximity()
 {
 	int num_pairs = 0;
-	CGAL::box_self_intersection_d(trisList.begin(),trisList.end(),
-                                     reportProximity<TRI*>(num_pairs),traitsForProximity());
+	CGAL::box_self_intersection_d(hseList.begin(),hseList.end(),
+                                     reportProximity<CD_HSE*>(num_pairs),traitsForProximity<3>());
 	updateAverageVelocity();
 }
 
@@ -196,9 +247,9 @@ void CollisionSolver3d::detectCollision()
 	while(is_collision){
 	    is_collision = false;
 	    start_clock("cgal_collision");
-	    CGAL::box_self_intersection_d(trisList.begin(),
-		  trisList.end(),reportCollision<TRI*>(is_collision,cd_pair),
-		  traitsForCollision());
+	    CGAL::box_self_intersection_d(hseList.begin(),
+		  hseList.end(),reportCollision<CD_HSE*>(is_collision,cd_pair),
+		  traitsForCollision<3>());
 	    stop_clock("cgal_collision");
 	    updateAverageVelocity();
 	    std::cout<<"    #"<<niter << ": " << cd_pair 
@@ -225,7 +276,7 @@ void CollisionSolver3d::computeImpactZone()
 
         std::cout<<"Starting compute Impact Zone: "<<std::endl;
 	turnOnImpZone();
-	makeSet(trisList);             
+	makeSet(hseList);             
         while(is_collision){
             is_collision = false;
 
@@ -233,9 +284,9 @@ void CollisionSolver3d::computeImpactZone()
 	    //merge four pts if collision happens
 
 	    start_clock("cgal_impactzone");
-	    CGAL::box_self_intersection_d(trisList.begin(),
-                  trisList.end(),reportCollision<TRI*>(is_collision,cd_pair),
-                  traitsForCollision());
+	    CGAL::box_self_intersection_d(hseList.begin(),
+                  hseList.end(),reportCollision<CD_HSE*>(is_collision,cd_pair),
+                  traitsForCollision<3>());
 	    stop_clock("cgal_impactzone");
 
 	    if (debugging("collision"))
@@ -257,12 +308,12 @@ void CollisionSolver3d::updateImpactZoneVelocity(int &nZones)
 {
 	POINT* pt;
 	int numZones = 0;
-	unsortTriList(trisList);
+	unsortHseList(hseList);
 
-	for (std::vector<TRI*>::iterator it = trisList.begin();
-	     it < trisList.end(); ++it){
-	    for (int i = 0; i < 3; ++i){
-		pt = Point_of_tri(*it)[i];
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+	     it < hseList.end(); ++it){
+	    for (int i = 0; i < (*it)->num_pts(); ++i){
+		pt = (*it)->Point_of_hse(i);
 		//skip traversed or isolated pts
 		if (sorted(pt) ||
 		    weight(findSet(pt)) == 1) continue;
@@ -380,14 +431,14 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 	    	x_new[i] = x_cm[i] + dt*v_cm[i]
 			 + xF[i] + cos(dt*mag_w)*xR[i]
 			 + wxR[i];
-		STATE* sl = (STATE*)left_state(p);
+		sl = (STATE*)left_state(p);
 		sl->avgVel[i] = (x_new[i] - sl->x_old[i])/dt;
 	    	if (isnan(sl->avgVel[i]))
 		{ 
 			printf("coords[3], vel[3]\n");
 			p = head;
 			while(p){
-			    STATE* sl = (STATE*)left_state(p);
+			    sl = (STATE*)left_state(p);
 			    printf("%f %f %f %f %f %f;\n",
 				sl->x_old[0],sl->x_old[1],sl->x_old[2],
 				sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
@@ -462,47 +513,113 @@ void CollisionSolver3d::resolveCollision()
 	stop_clock("updateFinalVelocity");
 }
 
-extern bool isCollision(const TRI* a, const TRI* b){
-	if (a->surf == b->surf && isRigidBody(a))
-	     return false;
-	for (int i = 0; i < 3; ++i)
-	for (int j = 0; j < 3; ++j)
+extern bool isCollision(const CD_HSE* a, const CD_HSE* b){
+	const CD_BOND *cd_b1, *cd_b2;
+	const CD_TRI  *cd_t1, *cd_t2;
+	double h = CollisionSolver3d::getRoundingTolerance();
+	if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) && 
+	    (cd_t2 = dynamic_cast<const CD_TRI*>(b)))
 	{
-	    if (Point_of_tri(a)[i] == Point_of_tri(b)[j])
+	    TRI* t1 = cd_t1->m_tri;
+	    TRI* t2 = cd_t2->m_tri;
+	    if (t1->surf == t2->surf && isRigidBody(t1))
 		return false;
+	    return MovingTriToTri(t1,t2,h);
 	}
-
-	if (MovingTriToTri(a,b,CollisionSolver3d::getRoundingTolerance())) 
-	     return true;
+	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
+	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    BOND* b2 = cd_b2->m_bond;
+	    return MovingBondToBond(b1,b2,h);
+	}
+	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) &&
+		 (cd_t1 = dynamic_cast<const CD_TRI*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    TRI* t1  = cd_t1->m_tri;
+	    return MovingTriToBond(t1,b1,h);
+	}
+	else if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) &&
+                 (cd_b1 = dynamic_cast<const CD_BOND*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    TRI* t1  = cd_t1->m_tri;
+	    return MovingTriToBond(t1,b1,h);
+	}
 	else
-	     return false;	
+	{
+	    std::cout<<"This case has not been implemented"<<std::endl;
+	    clean_up(ERROR);
+	}
+	return false;
 }
 
-extern bool isProximity(const TRI* a, const TRI* b){
-	if (a->surf == b->surf && isRigidBody(a))
-		return false;
+extern bool isProximity(const CD_HSE* a, const CD_HSE* b){
+	const CD_BOND *cd_b1, *cd_b2;
+	const CD_TRI  *cd_t1, *cd_t2;
+	double h = CollisionSolver3d::getFabricThickness();
 
-	for (int i = 0; i < 3; ++i)
-	for (int j = 0; j < 3; ++j)
+	if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) && 
+	    (cd_t2 = dynamic_cast<const CD_TRI*>(b)))
 	{
-	    if (Point_of_tri(a)[i] == Point_of_tri(b)[j])
+	    TRI* t1 = cd_t1->m_tri;
+	    TRI* t2 = cd_t2->m_tri;
+	    if (t1->surf == t2->surf && isRigidBody(t1))
 		return false;
+	    return TriToTri(t1,t2,h);
 	}
-
-	if (TriToTri(a,b,CollisionSolver3d::getFabricThickness()))
-	    return true;
+	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
+	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    BOND* b2 = cd_b2->m_bond;
+	    return BondToBond(b1,b2,h);
+	}
+	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) &&
+		 (cd_t1 = dynamic_cast<const CD_TRI*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    TRI* t1  = cd_t1->m_tri;
+	    return TriToBond(t1,b1,h);
+	}
+	else if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) &&
+                 (cd_b1 = dynamic_cast<const CD_BOND*>(b)))
+	{
+	    BOND* b1 = cd_b1->m_bond;
+	    TRI* t1  = cd_t1->m_tri;
+	    return TriToBond(t1,b1,h);
+	}
 	else
-	    return false;
+	{
+	    std::cout<<"This case has not been implemented"<<std::endl;
+	    clean_up(ERROR);
+	}
+	return false;
 }
 
 //helper function to detect a collision between 
 //a moving point and a moving triangle
 //or between two moving edges 
-static bool MovingTriToTri(const TRI* a,const TRI* b, const double h)
+static bool MovingBondToBond(const BOND* a, const BOND* b, double h){
+	return false;
+}
+
+static bool MovingTriToBond(const TRI* a, const BOND* b, double h){
+	return false;
+}
+
+static bool MovingTriToTri(const TRI* a,const TRI* b, double h)
 {
 	bool is_detImpZone = CollisionSolver3d::getImpZoneStatus();
 	POINT* pts[4];
 	bool status = false;
+	for (int i = 0; i < 3; ++i)
+	for (int j = 0; j < 3; ++j)
+	{
+	    if (Point_of_tri(a)[i] == Point_of_tri(b)[j])
+		return false;
+	}
 	//detect point to tri collision
 	for (int k = 0; k < 2; ++k)
 	for (int i = 0; i < 3; ++i){
@@ -708,10 +825,25 @@ static bool isCoplanar(POINT* pts[], const double dt, double roots[])
 }
 
 //helper function to detect proximity between elements 
+static bool TriToBond(const TRI* tri,const BOND* bd, double h){
+	return false;
+}
+
+static bool BondToBond(const BOND* b1, const BOND* b2, double h){
+	return false;
+}
+
 static bool TriToTri(const TRI* tri1, const TRI* tri2, double h){
 	POINT* pts[4];
 	STATE* sl[2];
 	bool status = false;
+	for (int i = 0; i < 3; ++i)
+	for (int j = 0; j < 3; ++j)
+	{
+	    if (Point_of_tri(tri1)[i] == Point_of_tri(tri2)[j])
+		return false;
+	}
+
 	//make sure the coords are old coords;
 	for (int i = 0; i < 3; ++i){
 	    pts[0] = Point_of_tri(tri1)[i];
@@ -768,15 +900,10 @@ static void PointToLine(POINT* pts[],double &a)
 *		  |  dist
 *		  *x3
 */
-	double x12[3], x13[3], projP[3];
+	double x12[3], x13[3];
 	Pts2Vec(pts[0],pts[1],x12);
         Pts2Vec(pts[0],pts[2],x13);
         a = Dot3d(x13,x12)/Dot3d(x12,x12);
-}
-
-extern void testFunctions(POINT** pts,double h)
-{
-	PointToTri(pts,h);
 }
 
 static bool EdgeToEdge(POINT** pts, double h)
@@ -805,10 +932,6 @@ static bool EdgeToEdge(POINT** pts, double h)
 	Cross3d(x21,x43,tmp);
 	if (Mag3d(tmp) < ROUND_EPS)
 	{
-	    double tmp_min_dist = HUGE;
-	    double tmp_nor[MAXD] = {0.0};
-	    double tmp_dist = 0.0, tmp_a = 0.0;
-	    POINT* plist[3];
 	    //degenerate cases to parallel line segments
 	    if (Mag3d(x21) > ROUND_EPS || Mag3d(x43) > ROUND_EPS){
 	    	POINT* plist[3];
@@ -915,7 +1038,6 @@ static bool PointToTri(POINT** pts, double h)
 	    CollisionSolver3d::pt_to_tri++;
 	double w[3] = {0.0};
 	double x13[3], x23[3], x43[3];
-	double v1[3], v2[3];
 	double nor[3] = {0.0}, nor_mag = 0.0, dist, det;
 
 	Pts2Vec(pts[0],pts[2],x13);
@@ -1004,7 +1126,9 @@ static bool PointToTri(POINT** pts, double h)
 	}
 	for (int i = 0; i < 3; ++i)
 	{
-	    if (w[i] > 1+h/c_len || w[i] < -h/c_len) 
+	    double eps = CollisionSolver3d::getRoundingTolerance(); 
+	    //test, use eps instead of h/c_len
+	    if (w[i] > 1+eps || w[i] < -eps) 
 		return false;
 	}
 	if (dist > h)
@@ -1067,11 +1191,11 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	    sl[3]->collsn_num += 1;
 	}
-	for (int k = 0; k < 4; k++)
+	for (int kk = 0; kk < 4; kk++)
 	for (int j = 0; j < 3; ++j){
-	    if (isnan(sl[k]->collsnImpulse[j]) ||
-		isinf(sl[k]->collsnImpulse[j])){
-		printf("PointToTri: sl[%d]->impl[%d] = nan\n",k,j);
+	    if (isnan(sl[kk]->collsnImpulse[j]) ||
+		isinf(sl[kk]->collsnImpulse[j])){
+		printf("PointToTri: sl[%d]->impl[%d] = nan\n",kk,j);
 		for (int i = 0; i < 4; ++i){
 		printf("points[%d] = %p\n",i,(void*)pts[i]);
 		printf("coords = [%f %f %f]\n",Coords(pts[i])[0],
@@ -1150,11 +1274,11 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	    sl[3]->collsn_num += 1;
 	}
-	for (int k = 0; k < 4; k++)
+	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < 3; ++j){
-	    if (isnan(sl[k]->collsnImpulse[j]) ||
-		isinf(sl[k]->collsnImpulse[j])){
-		printf("EdgeToEdge: sl[%d]->impl[%d] = nan\n",k,j);
+	    if (isnan(sl[i]->collsnImpulse[j]) ||
+		isinf(sl[i]->collsnImpulse[j])){
+		printf("EdgeToEdge: sl[%d]->impl[%d] = nan\n",i,j);
 		printf("a b = %f %f, nor = [%f %f %f], dist = %f\n",
 		a,b,nor[0],nor[1],nor[2],dist);
 	        clean_up(ERROR);
@@ -1169,14 +1293,16 @@ bool CollisionSolver3d::reduceSuperelastOnce(int& num_edges)
 	const double superelasTol = 0.10;
 	bool has_superelas = false;
 	num_edges = 0;
-	for (unsigned i = 0; i < trisList.size(); ++i){
-	    TRI* tri = trisList[i];
-	    if (isRigidBody(tri)) continue;
-	    for (int j = 0; j < 3; ++j){
+	for (unsigned i = 0; i < hseList.size(); ++i){
+	    CD_HSE* hse = hseList[i];
+	    int np = hse->num_pts();
+	    if (isRigidBody(hse)) continue;
+	    if (np <= 2) np--;
+	    for (int j = 0; j < np; ++j){
 		POINT* p[2];
 		STATE* sl[2];
-		p[0] = Point_of_tri(tri)[j%3];	
-		p[1] = Point_of_tri(tri)[(j+1)%3];
+		p[0] = hse->Point_of_hse(j%np);	
+		p[1] = hse->Point_of_hse((j+1)%np);
 		sl[0]= (STATE*)left_state(p[0]);
 		sl[1]= (STATE*)left_state(p[1]);
 
@@ -1188,7 +1314,15 @@ bool CollisionSolver3d::reduceSuperelastOnce(int& num_edges)
 		}	
 		double len_new = distance_between_positions(x_cand[0],x_cand[1],3);
 		double len_old = distance_between_positions(sl[0]->x_old,sl[1]->x_old,3);
-		double len0 = tri->side_length0[j];
+		double len0;
+		if (CD_TRI* cd_tri = dynamic_cast<CD_TRI*>(hse))
+		    len0 = cd_tri->m_tri->side_length0[j];
+		else if (CD_BOND* cd_bond = dynamic_cast<CD_BOND*>(hse))
+		    len0 = cd_bond->m_bond->length0;
+		else{
+		    std::cout<<"Unknown type"<<std::endl;
+		    clean_up(ERROR);
+		}
 		double vec[3], v_rel[3];
 
 		minusVec(sl[0]->x_old,sl[1]->x_old,vec);
@@ -1230,11 +1364,11 @@ void CollisionSolver3d::updateFinalPosition()
 	double dt = getTimeStepSize();
 
 	//#pragma omp parallel for private(sl,pt)
-	for (std::vector<TRI*>::iterator it = trisList.begin();
-	     it < trisList.end(); ++it)
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+	     it < hseList.end(); ++it)
 	{
-	    for (int i = 0; i < 3; ++i){
-		pt = Point_of_tri(*it)[i];
+	    for (int i = 0; i < (*it)->num_pts(); ++i){
+		pt = (*it)->Point_of_hse(i);
 		sl = (STATE*)left_state(pt);
 	    	for (int j = 0; j < 3; ++j)
 		{
@@ -1267,11 +1401,11 @@ void CollisionSolver3d::updateFinalVelocity()
 	POINT* pt;
 	STATE* sl;
 	//#pragma omp parallel for private(pt,sl)
-	for (std::vector<TRI*>::iterator it = trisList.begin();
-             it < trisList.end(); ++it)
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+             it < hseList.end(); ++it)
         {
-            for (int i = 0; i < 3; ++i){
-                pt = Point_of_tri(*it)[i];
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+                pt = (*it)->Point_of_hse(i);
                 sl = (STATE*)left_state(pt);
 		if (!sl->has_collsn) 
 		    continue;
@@ -1292,13 +1426,14 @@ void CollisionSolver3d::updateAverageVelocity()
 	double maxSpeed = 0;
 	double* maxVel = NULL;
 
-	unsortTriList(trisList);
-	for (unsigned i = 0; i < trisList.size(); ++i)
+	unsortHseList(hseList);
+	for (unsigned i = 0; i < hseList.size(); ++i)
 	{
-	    TRI* tri = trisList[i]; 
-	    for (int j = 0; j < 3; ++j)
+	    CD_HSE* hse = hseList[i];
+	    int np = hse->num_pts(); 
+	    for (int j = 0; j < np; ++j)
 	    {
-		p = Point_of_tri(tri)[j];
+		p = hse->Point_of_hse(j);
 		if (isRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
@@ -1335,24 +1470,98 @@ void CollisionSolver3d::updateAverageVelocity()
 	    printf("    max velocity = [%f %f %f]\n",maxVel[0],maxVel[1],maxVel[2]);
 }
 
-/* Function from CGAL libary, not used anymore */
-static bool trisIntersect(const TRI* a, const TRI* b)
-{
-	Point_3 pts[3];
-	Triangle_3 tri1,tri2;
-	for (int i = 0; i < 3; ++i)
-	   pts[i] = Point_3(Coords(Point_of_tri(a)[i])[0],
-                            Coords(Point_of_tri(a)[i])[1],
-                            Coords(Point_of_tri(a)[i])[2]);
-	tri1 = Triangle_3(pts[0],pts[1],pts[2]);
-	for (int i = 0; i < 3; ++i)
-	   pts[i] = Point_3(Coords(Point_of_tri(b)[i])[0],
-			    Coords(Point_of_tri(b)[i])[1],
-			    Coords(Point_of_tri(b)[i])[2]);
-	tri2 = Triangle_3(pts[0],pts[1],pts[2]);
-	return CGAL::do_intersect(tri1,tri2);
+/********************************
+* implementation for CD_HSE     *
+*********************************/
+double CD_BOND::max_static_coord(int dim){
+    return std::max(Coords(m_bond->start)[dim],
+		    Coords(m_bond->end)[dim]);
 }
 
+double CD_BOND::min_static_coord(int dim){
+    return std::min(Coords(m_bond->start)[dim],
+		    Coords(m_bond->end)[dim]);
+}
+
+double CD_BOND::max_moving_coord(int dim,double dt){
+    double ans = -HUGE;
+    for (int i = 0; i < 2; ++i){
+	POINT* pt = (i == 0)? m_bond->start : m_bond->end;
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::max(ans,Coords(pt)[dim]);
+	ans = std::max(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt); 
+    }    
+    return ans;
+}
+
+double CD_BOND::min_moving_coord(int dim,double dt){
+    double ans = HUGE;
+    for (int i = 0; i < 2; ++i){
+	POINT* pt = (i == 0)? m_bond->start : m_bond->end;
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::min(ans,Coords(pt)[dim]);
+	ans = std::min(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt); 
+    }    
+    return ans;
+}
+
+POINT* CD_BOND::Point_of_hse(int i) const{
+    if (i >= num_pts())
+	return NULL;
+    else
+        return (i == 0) ? m_bond->start : 
+			  m_bond->end;
+}
+
+double CD_TRI::max_static_coord(int dim){
+    double ans = -HUGE;
+    for (int i = 0; i < 3; ++i){
+	POINT* pt = Point_of_tri(m_tri)[i];
+	ans = std::max(Coords(pt)[dim],ans);
+    }
+    return ans;
+}
+
+double CD_TRI::min_static_coord(int dim){
+    double ans = HUGE;
+    for (int i = 0; i < 3; ++i){
+	POINT* pt = Point_of_tri(m_tri)[i];
+	ans = std::min(Coords(pt)[dim],ans);
+    }
+    return ans;
+}
+
+double CD_TRI::max_moving_coord(int dim,double dt){
+    double ans = -HUGE;
+    for (int i = 0; i < 3; ++i){
+	POINT* pt = Point_of_tri(m_tri)[i];
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::max(ans,Coords(pt)[dim]);
+	ans = std::max(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt);
+    }
+    return ans;
+}
+
+double CD_TRI::min_moving_coord(int dim,double dt){
+    double ans = HUGE;
+    for (int i = 0; i < 3; ++i){
+	POINT* pt = Point_of_tri(m_tri)[i];
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::min(ans,Coords(pt)[dim]);
+	ans = std::min(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt);
+    }
+    return ans;
+}
+
+POINT* CD_TRI::Point_of_hse(int i) const{
+    if (i >= num_pts())
+	return NULL;
+    else
+        return Point_of_tri(m_tri)[i];
+}
+/*******************************
+* utility functions start here *
+*******************************/
 /* The followings are helper functions for vector operations. */
 inline void Pts2Vec(const POINT* p1, const POINT* p2, double* v){
 	for (int i = 0; i < 3; ++i)	
@@ -1403,13 +1612,20 @@ static void unsort_surface_point(SURFACE *surf)
         }
 }       /* end unsort_surface_point */
 
-static void unsortTriList(std::vector<TRI*>& trisList){
-	for (unsigned j = 0; j < trisList.size(); ++j)
+static void unsortHseList(std::vector<CD_HSE*>& hseList){
+	for (unsigned j = 0; j < hseList.size(); ++j)
 	{
-	    for (int i = 0; i < 3; ++i){
-		sorted(Point_of_tri(trisList[j])[i]) = NO;
+	    CD_HSE* hse = hseList[j];
+	    int np = hse->num_pts();
+	    for (int i = 0; i < np; ++i){
+		sorted(hse->Point_of_hse(i)) = NO;
 	    }
 	}
+}
+
+static bool isRigidBody(const CD_HSE* hse){
+	POINT* pt = hse->Point_of_hse(0);
+	return isRigidBody(pt);
 }
 
 static bool isRigidBody(const TRI* tri){
@@ -1426,14 +1642,6 @@ static bool isRigidBody(const POINT* pt){
 	    return true;
 	else
 	    return false;
-}
-
-static void gviewplotTriPair(const char dname[], const TRI_PAIR& tri_pair){
-	TRI **tris = new TRI*[2];
-	tris[0] = tri_pair.first;
-	tris[1] = tri_pair.second;
-	gview_plot_tri_list(dname,tris,2);
-	delete[] tris;
 }
 
 //functions for UF alogrithm
@@ -1457,14 +1665,14 @@ inline POINT*& tail(POINT* p){
 	return sl->impZone.tail;
 }
 
-static void makeSet(std::vector<TRI*>& trisList){
+static void makeSet(std::vector<CD_HSE*>& hseList){
 	STATE* sl;
 	POINT* pt;
 	//#pragma omp parallel for private(sl,pt)
-        for (std::vector<TRI*>::iterator it = trisList.begin();
-                it < trisList.end(); ++it){
-            for (int i = 0; i < 3; ++i){
-		pt = Point_of_tri(*it)[i];
+        for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+                it < hseList.end(); ++it){
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+		pt = (*it)->Point_of_hse(i);
                 sorted(pt) = NO;
 		sl = (STATE*)left_state(pt);
 		sl->impZone.next_pt = NULL;
@@ -1510,3 +1718,11 @@ void printPointList(POINT** plist,const int n){
 		Coords(plist[i])[1],Coords(plist[i])[2]);
 	}
 }
+
+//call any function you want
+//feel free to make a test using this wrap
+extern void testFunctions(POINT** pts,double h)
+{
+	PointToTri(pts,h);
+}
+

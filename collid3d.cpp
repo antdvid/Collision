@@ -16,7 +16,6 @@ int main(int argc, char** argv)
 	static Front front;
         static F_BASIC_DATA f_basic;
         static LEVEL_FUNC_PACK level_func_pack;
-        SURFACE *surf;
 	f_basic.dim = 3;
         FT_Init(argc,argv,&f_basic);
         f_basic.size_of_intfc_state = sizeof(STATE);
@@ -102,6 +101,7 @@ static  void propagation_driver(
         {
             /* Propagating interface for time step dt */
 
+
             FT_Propagate(front);
 
 	    //collision detect and handling
@@ -156,9 +156,8 @@ static void collision_point_propagate(
         }
 
 	STATE *newsl,*newsr;
-        STATE *sl,*sr;
+        STATE *sl;
 	sl = (STATE*)left_state(oldp);
-        sr = (STATE*)right_state(oldp);
         newsl = (STATE*)left_state(newp);
         newsr = (STATE*)right_state(newp);
 

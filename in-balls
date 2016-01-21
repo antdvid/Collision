@@ -19,3 +19,5 @@ Type yes to turn off auto-redistribution: y
 
 Enter problem type: Ball 
 
+Enter yes for debugging: yes
+Enter the debugging string: collision

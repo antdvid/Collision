@@ -1,5 +1,8 @@
 #include <FronTier.h>
 #include "collid.h"
+static void initBalls(Front&);
+static void initPlane(Front&);
+
 void initTestModule(Front &front, char* in_name)
 {
         FILE* infile = fopen(in_name,"r");
@@ -50,7 +53,7 @@ static void initBalls(Front& front)
 
 static void initPlane(Front& front)
 {
-        double center[MAXD],plane_nor[MAXD];        // Center of the sphere
+        double center[MAXD];        // Center of the sphere
         double R[MAXD];
         SURFACE* surf;
 	
