@@ -167,7 +167,7 @@ public:
 	static void setPointMass(double);
 	static double getPointMass();
 	static bool getImpZoneStatus();	
-	virtual ~CollisionSolver() {} //virtual destructor
+	virtual ~CollisionSolver(){} //virtual destructor
 	//pure virtual functions
 	virtual void assembleFromInterface(const INTERFACE*,double dt) = 0;
 	bool isProximity(const CD_HSE*,const CD_HSE*);	

@@ -26,12 +26,15 @@ typedef Kernel::Triangle_3                                    Triangle_3;
 bool   CollisionSolver::s_detImpZone = false;
 double CollisionSolver::s_eps = EPS;
 double CollisionSolver::s_thickness = 0.001;
-double CollisionSolver::s_dt = 0.001;
+double CollisionSolver::s_dt = DT;
 double CollisionSolver::s_k = 1000;
 double CollisionSolver::s_m = 0.01;
 double CollisionSolver::s_lambda = 0.02;
 int traitsForProximity::m_dim = 3;
 int traitsForCollision::m_dim = 3;
+double traitsForProximity::s_eps = EPS;	
+double traitsForCollision::s_eps = EPS;
+double traitsForCollision::s_dt = DT;
 
 //debugging variables
 int CollisionSolver::moving_edg_to_edg = 0;
@@ -739,6 +742,13 @@ bool isRigidBody(const POINT* pt){
 	    return false;
 }
 
+bool isRigidBody(const TRI* tri){
+	if (wave_type(Hyper_surf(tri->surf)) == NEUMANN_BOUNDARY ||
+	    wave_type(Hyper_surf(tri->surf)) == MOVABLE_BODY_BOUNDARY)
+	    return true;
+	else
+	    return false;
+}
 //functions for UF alogrithm
 inline int& weight(POINT* p){
 	STATE* sl = (STATE*)left_state(p);

@@ -7,9 +7,6 @@ static bool EdgeToEdge(POINT**,double);
 static bool isCoplanar(POINT**,double,double*);
 static void EdgeToEdgeImpulse(POINT**, double*, double, double, double);
 static void PointToTriImpulse(POINT**, double*, double*, double);
-double traitsForProximity::s_eps = EPS;
-double traitsForCollision::s_eps = EPS;
-double traitsForCollision::s_dt = DT;
 
 //functions in CollisionSolver3d
 void CollisionSolver3d::assembleFromInterface(
@@ -883,12 +880,4 @@ static void unsort_surface_point(SURFACE *surf)
             }
         }
 }       /* end unsort_surface_point */
-
-bool isRigidBody(const TRI* tri){
-	if (wave_type(Hyper_surf(tri->surf)) == NEUMANN_BOUNDARY ||
-	    wave_type(Hyper_surf(tri->surf)) == MOVABLE_BODY_BOUNDARY)
-	    return true;
-	else
-	    return false;
-}
 
