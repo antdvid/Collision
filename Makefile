@@ -8,13 +8,13 @@ incs =   -I/usr/local/pkg/mpich2/include -D__MPI__  -I/usr/local/pkg/hdf/include
 libincs =  -L/usr/lib -L/usr/lib -L/usr/local/pkg/hdf/lib  -L/usr/local/pkg/mpich2/lib 
 libs = -lgd -lmfhdf -ldf -ljpeg -lz  -lmpich -lpthread
 
-collid3d: collid3d.o dcollid.o cdinit.o
-	$(CXX) $^ -I../include -L../lib/x86_64 $(libincs) -lFronTier -lm $(libs) -lCGAL_Core -lCGAL_ImageIO -lCGAL -lgmp -frounding-math -o collid3d 
+test_collid: test_collid.o dcollid.o cdinit.o dcollid3d.o
+	$(CXX) $^ -I../include -L../lib/x86_64 $(libincs) -lFronTier -lm $(libs) -lCGAL_Core -lCGAL_ImageIO -lCGAL -lgmp -frounding-math -o test_collid 
 
 %.o: %.cpp
 	${CXX} $< -c -I../include $(incs) -frounding-math
 clean:
-	rm -rf *.o collid3d 
+	rm -rf *.o test_collid 
 tagsfile:
 	ctags *.cpp ../src/*/*.[chf]
 

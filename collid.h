@@ -1,9 +1,16 @@
-//collid3d.h
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/box_intersection_d.h>
+#include <FronTier.h>
 #include "../iFluid/ifluid_state.h"
 #include <functional>
+#if defined(isnan)
+#undef isnan
+#endif
 
+#define DEBUGGING false
+const double ROUND_EPS = 1e-10;
+const double EPS = 1e-6;
+const double DT = 0.001;
 /*
 user-defined state should include the following
 struct UF{
@@ -77,14 +84,13 @@ public:
 };
 
 //box traits structure for proximity detection 
-template <int dim>
 struct traitsForProximity{
 	typedef double 		NT;
 	typedef CD_HSE*		Box_parameter;
-	typedef std::ptrdiff_t ID;
 
+	static int m_dim;
 	static double s_eps;
-	static int dimension(){ return dim;}
+	static int dimension(){ return m_dim;}
 	static double min_coord(Box_parameter b, int d)
 		{return b->min_static_coord(d)-s_eps;}
 	static double max_coord(Box_parameter b, int d)
@@ -93,50 +99,19 @@ struct traitsForProximity{
 };
 
 //box traits structure for collision detection
-template <int dim>
 struct traitsForCollision{
 	typedef double          		NT;
         typedef CD_HSE*      Box_parameter;
 
+	static int m_dim;
 	static double s_eps;
 	static double s_dt;
-        static int dimension(){ return dim;}
+        static int dimension(){ return m_dim;}
         static double min_coord(Box_parameter b, int d)
 		{return b->min_moving_coord(d,s_dt)-s_eps;}
         static double max_coord(Box_parameter b, int d)
 		{return b->max_moving_coord(d,s_dt)+s_eps;}
 	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b);}
-};
-
-extern bool isProximity(const CD_HSE*,const CD_HSE*);
-extern bool isCollision(const CD_HSE*,const CD_HSE*);
-
-//callback functor to identify real collision
-template <typename T>
-struct reportProximity{
-    int& num_pairs;
-    reportProximity(int &npair): num_pairs(npair = 0){}
-    // We write the elements with respect to 'boxes' to the output
-    void operator()( const T &a, const T &b) {
-	if(isProximity(a,b)){
-	    num_pairs++;
-	}
-    }
-};
-
-template <typename T>
-struct reportCollision{
-    bool& is_collision;
-    int&  num_pairs;
-    reportCollision(bool &status, int &npairs) 
-		   : is_collision(status), num_pairs(npairs = 0) {}
-    // We write the elements with respect to 'boxes' to the output
-    void operator()( const T &a, const T &b) {
-	if (isCollision(a,b)){
-	    num_pairs ++;
-	    is_collision = true;
-	}
-    }
 };
 
 //abstract base class for collision detection and handling
@@ -149,10 +124,36 @@ private:
 	static double s_m;
 	static double s_k;
 	static double s_lambda;
+	static void turnOffImpZone();
+	static void turnOnImpZone();
+	bool reduceSuperelastOnce(int&);
+	void computeAverageVelocity();
+	void updateFinalPosition();
+	void reduceSuperelast();
+	void updateFinalVelocity();
+	void updateAverageVelocity();
+	void computeImpactZone();
+	void updateImpactZoneVelocity(int&);
+	void setTraitsDimension();
+	void detectProximity();
+	void detectCollision();
+
+	virtual void updateImpactListVelocity(POINT*) = 0;
+	virtual bool BondToBond(const BOND*,const BOND*,double) = 0;
+	virtual bool TriToTri(const TRI*,const TRI*,double) = 0;
+	virtual bool TriToBond(const TRI*,const BOND*,double)=0;
+	virtual bool MovingBondToBond(const BOND*,const BOND*,double) = 0;
+	virtual bool MovingTriToTri(const TRI*,const TRI*,double) = 0;
+	virtual bool MovingTriToBond(const TRI*,const BOND*,double)=0;
+
 protected:
+	int m_dim;
 	std::vector<CD_HSE*> hseList;
+	static bool s_detImpZone;
 	void clearHseList();
 public:
+	CollisionSolver(int dim):m_dim(dim){}
+	CollisionSolver(){}
 	static void setRoundingTolerance(double);
 	static double getRoundingTolerance();
 	static void setFabricThickness(double);
@@ -165,67 +166,97 @@ public:
 	static double getFrictionConstant();
 	static void setPointMass(double);
 	static double getPointMass();
-	virtual ~CollisionSolver() {}; //virtual destructor
+	static bool getImpZoneStatus();	
+	virtual ~CollisionSolver() {} //virtual destructor
 	//pure virtual functions
 	virtual void assembleFromInterface(const INTERFACE*,double dt) = 0;
-	virtual void detectProximity() = 0;
-	virtual void detectCollision() = 0;
-	virtual void resolveCollision() = 0;
-	virtual void recordOriginPosition() = 0;
+	bool isProximity(const CD_HSE*,const CD_HSE*);	
+	bool isCollision(const CD_HSE*,const CD_HSE*);
+	void resolveCollision();
+	void recordOriginPosition();	
+
+	//for debugging
+	static void printDebugVariable();
+	static int moving_edg_to_edg;
+	static int moving_pt_to_tri;
+	static int is_coplanar;
+	static int edg_to_edg;
+	static int pt_to_tri;
 };
 
 //derived 2D-class for collision detection and handling
 class CollisionSolver2d : public CollisionSolver {
+private:
+	void updateImpactListVelocity(POINT*);
+	bool BondToBond(const BOND*,const BOND*,double);
+	bool TriToTri(const TRI*,const TRI*,double);
+	bool TriToBond(const TRI*,const BOND*,double);
 public:
+	CollisionSolver2d():CollisionSolver(2){}
 	void assembleFromInterface(const INTERFACE*,double dt);
-	void detectProximity();
-	void detectCollision();
-	void resolveCollision();
-	void getBondPairList(std::vector<std::pair<BOND*,BOND*> >&);
 };
 
 //derived 3D-class for collision detection and handling
 class CollisionSolver3d : public CollisionSolver {
 private:
 	//input tris
-	static bool s_detImpZone;
-	void computeAverageVelocity();
-	void updateAverageVelocity();
-	void updateFinalVelocity();
-	void updateFinalPosition();
-	void computeImpactZone();
-	void updateImpactZoneVelocity(int&);
 	void updateImpactListVelocity(POINT*);
-	void reduceSuperelast();
-	bool reduceSuperelastOnce(int&);
+	bool BondToBond(const BOND*,const BOND*,double);
+	bool TriToTri(const TRI*,const TRI*,double);
+	bool TriToBond(const TRI*,const BOND*,double);
+	bool MovingBondToBond(const BOND*,const BOND*,double);
+	bool MovingTriToTri(const TRI*,const TRI*,double);
+	bool MovingTriToBond(const TRI*,const BOND*,double);
 public:
-	//for debugging
-	static int moving_edg_to_edg;
-	static int moving_pt_to_tri;
-	static int is_coplanar;
-	static int edg_to_edg;
-	static int pt_to_tri;
-	static void printDebugVariable();
+	CollisionSolver3d():CollisionSolver(3){}
 	void assembleFromInterface(const INTERFACE*,double dt);
-	void recordOriginPosition();
-	void detectProximity();
-	void detectCollision();
-	void resolveCollision();
-	static void turnOffImpZone();
-	static void turnOnImpZone();
-	static bool getImpZoneStatus();
 };
 
-#if defined(isnan)
-#undef isnan
-#endif
+//callback functor to identify real collision
+struct reportProximity{
+    int& num_pairs;
+    CollisionSolver* collsn_solver;
+    reportProximity(int &npair,CollisionSolver* solver): 
+			 	 num_pairs(npair = 0),
+				 collsn_solver(solver){}
+    // We write the elements with respect to 'boxes' to the output
+    void operator()( const CD_HSE* a, const CD_HSE* b) {
+	if(collsn_solver->isProximity(a,b)){
+	    num_pairs++;
+	}
+    }
+};
 
-#define DEBUGGING false
+struct reportCollision{
+    bool& is_collision;
+    int&  num_pairs;
+    CollisionSolver* collsn_solver;
+    reportCollision(bool &status, int &npairs,CollisionSolver* solver): 
+		     is_collision(status), 
+		     num_pairs(npairs = 0), 
+		     collsn_solver(solver){}
+    // We write the elements with respect to 'boxes' to the output
+    void operator()( const CD_HSE* a, const CD_HSE* b) {
+	if (collsn_solver->isCollision(a,b)){
+	    num_pairs ++;
+	    is_collision = true;
+	}
+    }
+};
+
 void initSurfaceState(SURFACE*,const double*);
 void initTestModule(Front&, char*);
-extern void testFunctions(POINT**,double);
-inline void Pts2Vec(const POINT* p1, const POINT* p2, double* v); 
-inline void scalarMult(double a,double* v, double* ans); 
-inline void addVec(double* v1, double* v2, double* ans); 
-inline void minusVec(double* v1, double* v2, double* ans); 
-inline double distBetweenCoords(double* v1, double* v2);
+void Pts2Vec(const POINT*, const POINT*, double*); 
+void scalarMult(double a,double* v, double* ans); 
+void addVec(double* v1, double* v2, double* ans); 
+void minusVec(double* v1, double* v2, double* ans); 
+double myDet3d(double[][3]);
+double distBetweenCoords(double* v1, double* v2);
+extern bool isRigidBody(const CD_HSE*);
+extern bool isRigidBody(const POINT*);
+extern bool isRigidBody(const TRI*);
+extern void printPointList(POINT**, const int);
+extern void createImpZone(POINT*[],int);
+void unsortHseList(std::vector<CD_HSE*>&);
+POINT*& next_pt(POINT*);
+int& weight(POINT*);
