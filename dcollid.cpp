@@ -225,7 +225,7 @@ void CollisionSolver::setTraitsDimension(){
 void CollisionSolver::resolveCollision()
 {
 	//catch floating point exception: nan/inf
-	feenableexcept(FE_INVALID | FE_OVERFLOW);
+//	feenableexcept(FE_INVALID | FE_OVERFLOW);
 
 	setTraitsDimension();
 
@@ -268,6 +268,7 @@ void CollisionSolver::detectProximity()
                                      reportProximity(num_pairs,this),
 				     traitsForProximity());
 	updateAverageVelocity();
+	std::cout << num_pairs << " pair of proximity tris" << std::endl;
 }
 
 void CollisionSolver::detectCollision()
