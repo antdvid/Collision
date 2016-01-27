@@ -2,6 +2,7 @@
 #include "collid.h"
 static void initBalls(Front&);
 static void initPlane(Front&);
+static void initString(Front&);
 
 void initTestModule(Front &front, char* in_name)
 {
@@ -14,11 +15,14 @@ void initTestModule(Front &front, char* in_name)
             initBalls(front);
         else if (mesg[0] == 'P')
 	    initPlane(front);
+	else if (mesg[0] == 'S' || mesg[0] == 's')
+	    initString(front);
 	else
         {
             std::cout << "Unknown problem type" << mesg << std::endl;
             clean_up(ERROR);
         }
+	gview_plot_interface("init",front.interf);
 }
 
 static void initBalls(Front& front)
@@ -48,7 +52,6 @@ static void initBalls(Front& front)
 
         const double vel2[] = {0.2,0.2,0.2};
         initSurfaceState(surf,vel2);
-
 }
 
 static void initPlane(Front& front)
@@ -85,6 +88,54 @@ static void initPlane(Front& front)
 
 }
 
+static void initString(Front& front){
+	double center[MAXD];        // Center of the sphere
+        SURFACE* surf;
+
+	//make a cuboid
+	center[0] = center[1] = 0.25;
+        center[2] = 0.3;
+        double edge[MAXD];
+        edge[0] = edge[1] = 0.15;
+        edge[2] = 0.01;
+	FT_MakeCuboidSurf(&front,center,edge,1,2,
+                        FIRST_PHYSICS_WAVE_TYPE,
+                        1,
+                        &surf);	
+	const double vel1[] = {0,0,-0.2};
+        //initialize velocity function to straight_velocity
+        initSurfaceState(surf,vel1);
+
+	//make a string
+	double pt[2][3] = {{0.25,0.01,0.25},{0.25,0.49,0.25}};
+	POINT     *string_pts[2];
+	NODE      *string_nodes[2];
+	CURVE     *curve;
+	INTERFACE *intfc = front.interf;
+	for (int i = 0; i < 2; ++i)
+	    string_nodes[i] = make_node(Point(pt[i]));
+	curve = make_curve(0,0,string_nodes[0],string_nodes[1]);
+        double spacing = separation(string_nodes[0]->posn,
+				    string_nodes[1]->posn,3);
+	double dir[3];
+        for (int j = 0; j < 3; ++j)
+            dir[j] = (Coords(string_nodes[1]->posn)[j] -
+                      Coords(string_nodes[0]->posn)[j])/spacing;
+	double *h = computational_grid(intfc)->h;
+        int nb = (int)(spacing/(0.25*h[0]));
+        spacing /= (double)nb;
+        BOND* b = curve->first;
+	double coords[3];
+        for (int j = 1; j < nb; ++j)
+        {
+            for (int k = 0; k < 3; ++k)
+                coords[k] = Coords(string_nodes[0]->posn)[k] +
+                                   j*dir[k]*spacing;
+            insert_point_in_bond(Point(coords),b,curve);
+            b = b->next;
+        }
+	hsbdry_type(curve) = STRING_HSBDRY;
+}
 
 void initSurfaceState(
         SURFACE* surf,

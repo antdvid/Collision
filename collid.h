@@ -9,7 +9,7 @@
 
 #define DEBUGGING false
 const double ROUND_EPS = 1e-10;
-const double EPS = 1e-6;
+const double EPS = 1e-7;
 const double DT = 0.001;
 /*
 user-defined state should include the following
@@ -41,6 +41,7 @@ public:
 	virtual double min_moving_coord(int,double) = 0;
 	virtual POINT* Point_of_hse(int) const  = 0;
 	virtual int num_pts() const= 0;
+	virtual bool isRigidBody() const{return false;}
 	virtual ~CD_HSE(){};
 };
 
@@ -55,6 +56,7 @@ public:
 	double min_moving_coord(int,double);
 	POINT* Point_of_hse(int) const;
 	int num_pts() const {return 3;}
+	bool isRigidBody() const;
 };
 
 //wrap class for bond
@@ -68,6 +70,7 @@ public:
 	double min_moving_coord(int,double);
 	POINT* Point_of_hse(int) const;
 	int num_pts()const{return 2;}
+	bool isRigidBody()const;
 };
 
 //wrap class for point
@@ -253,8 +256,6 @@ void minusVec(double* v1, double* v2, double* ans);
 double myDet3d(double[][3]);
 double distBetweenCoords(double* v1, double* v2);
 extern bool isRigidBody(const CD_HSE*);
-extern bool isRigidBody(const POINT*);
-extern bool isRigidBody(const TRI*);
 extern void printPointList(POINT**, const int);
 extern void createImpZone(POINT*[],int);
 void unsortHseList(std::vector<CD_HSE*>&);
