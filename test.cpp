@@ -56,10 +56,6 @@ static  void propagation_driver(
 {
         double CFL;
 	CollisionSolver *collision_solver = new CollisionSolver3d();
-
-	collision_solver->setRoundingTolerance(0.000001);
-	collision_solver->setFabricThickness(0.001);
-
         /*front->max_time = 5;
         front->max_step = 50;
         front->print_time_interval = 0.5;

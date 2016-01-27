@@ -10,7 +10,7 @@ Lower boundary in 2-th dimension: DIRICHLET_BOUNDARY
 Upper boundary in 2-th dimension: DIRICHLET_BOUNDARY
 
 Max time: 1.0 
-Max step: 50
+Max step: 200 
 Print interval: 0.01
 Movie frame interval: 0.01
 CFL factor: 0.75
@@ -21,3 +21,4 @@ Enter problem type: Ball
 
 Enter yes for debugging: yes
 Enter the debugging string: collision
+Enter the debugging string: CLOCK 

@@ -7,6 +7,7 @@ static bool EdgeToEdge(POINT**,double);
 static bool isCoplanar(POINT**,double,double*);
 static void EdgeToEdgeImpulse(POINT**, double*, double, double, double);
 static void PointToTriImpulse(POINT**, double*, double*, double);
+static bool isRigidBody(POINT*);
 
 //functions in CollisionSolver3d
 void CollisionSolver3d::assembleFromInterface(
@@ -238,9 +239,6 @@ bool CollisionSolver3d::MovingTriToTri(const TRI* a,const TRI* b, double h)
 
 static bool MovingPointToTri(POINT* pts[],const double h){
 
-	if (debugging("collision"))
-	    CollisionSolver::moving_pt_to_tri++;
-
 	double dt = CollisionSolver3d::getTimeStepSize();
 	double roots[4] = {-1,-1,-1,dt};
 	STATE* sl;
@@ -265,9 +263,6 @@ static bool MovingEdgeToEdge(POINT* pts[],const double h){
 	double dt = CollisionSolver3d::getTimeStepSize();
 	double roots[4] = {-1,-1,-1,dt};
 	STATE* sl;
-
-	if (debugging("collision"))
-	    CollisionSolver3d::moving_edg_to_edg++;
 
 	if (isCoplanar(pts,dt,roots)){
             for (int i = 0; i < 4; ++i){
@@ -494,9 +489,6 @@ static bool EdgeToEdge(POINT** pts, double h)
  * -x21*x43*a + x43*x43*b = -x43*x31
  */
 
-	if (debugging("collision"))
-	    CollisionSolver::edg_to_edg++;
-
 	double x21[3], x43[3], x31[3];
 	double a, b;
 	double tmp[3];
@@ -610,9 +602,6 @@ static bool PointToTri(POINT** pts, double h)
  * x13*x13*w1 + x13*x23*w2 = x13*x43
  * x13*x23*w1 + x23*x23*w2 = x23*x43
  */
-
-	if (debugging("collision"))
-	    CollisionSolver::pt_to_tri++;
 	double w[3] = {0.0};
 	double x13[3], x23[3], x43[3];
 	double nor[3] = {0.0}, nor_mag = 0.0, dist, det;
@@ -701,6 +690,8 @@ static bool PointToTri(POINT** pts, double h)
 	    if (tmp_dist > c_len) 
 		c_len = tmp_dist;
 	}
+	if (dist > h)
+	    return false;
 	for (int i = 0; i < 3; ++i)
 	{
 	    double eps = CollisionSolver3d::getRoundingTolerance(); 
@@ -708,8 +699,6 @@ static bool PointToTri(POINT** pts, double h)
 	    if (w[i] > 1+eps || w[i] < -eps) 
 		return false;
 	}
-	if (dist > h)
-	    return false;
 	PointToTriImpulse(pts, nor, w, dist);
 	return true;
 }
@@ -717,6 +706,8 @@ static bool PointToTri(POINT** pts, double h)
 /* repulsion and friction functions, update velocity functions */
 static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 {
+	if (debugging("collision"))
+	    CollisionSolver::pt_to_tri++;
 	STATE *sl[4];
 	for (int i = 0; i < 4; ++i)
 	    sl[i] = (STATE*)left_state(pts[i]);
@@ -788,6 +779,9 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist)
 
 static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, double dist)
 {
+	if (debugging("collision"))
+	    CollisionSolver::edg_to_edg++;
+
 	STATE *sl[4];
 	for (int i = 0; i < 4; ++i)
 	    sl[i] = (STATE*)left_state(pts[i]);
@@ -881,3 +875,10 @@ static void unsort_surface_point(SURFACE *surf)
         }
 }       /* end unsort_surface_point */
 
+static bool isRigidBody(POINT* p){
+    if (wave_type(p->hs) == NEUMANN_BOUNDARY ||
+        wave_type(p->hs) == MOVABLE_BODY_BOUNDARY)
+        return true;
+    else
+        return false;
+}

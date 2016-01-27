@@ -25,7 +25,7 @@ typedef Kernel::Triangle_3                                    Triangle_3;
 //define default parameters for collision detection
 bool   CollisionSolver::s_detImpZone = false;
 double CollisionSolver::s_eps = EPS;
-double CollisionSolver::s_thickness = 0.001;
+double CollisionSolver::s_thickness = 0.0001;
 double CollisionSolver::s_dt = DT;
 double CollisionSolver::s_k = 1000;
 double CollisionSolver::s_m = 0.01;
@@ -180,9 +180,6 @@ void CollisionSolver::computeImpactZone()
                   traitsForCollision());
 	    stop_clock("cgal_impactzone");
 
-	    if (debugging("collision"))
-	        printDebugVariable();
-
             updateAverageVelocity();
 
 	    updateImpactZoneVelocity(numZones);
@@ -240,11 +237,17 @@ void CollisionSolver::resolveCollision()
 	detectProximity();
 	stop_clock("detectProximity");
 
+	if (debugging("collision"))
+	    printDebugVariable();
+
 	start_clock("detectCollision");
 	//test collision for tri-tri
 	//or bond-tri or bond-bond
 	detectCollision();
 	stop_clock("detectCollision");
+
+	if (debugging("collision"))
+	    printDebugVariable();
 	
 	start_clock("updateFinalPosition");
 	//update position using average velocity
@@ -267,6 +270,9 @@ void CollisionSolver::detectProximity()
 	CGAL::box_self_intersection_d(hseList.begin(),hseList.end(),
                                      reportProximity(num_pairs,this),
 				     traitsForProximity());
+	if (debugging("collision")){
+	    std::cout<<num_pairs<<" number of proximated pairs"<<std::endl;
+	}
 	updateAverageVelocity();
 }
 
@@ -451,7 +457,7 @@ void CollisionSolver::updateAverageVelocity()
 	    for (int j = 0; j < np; ++j)
 	    {
 		p = hse->Point_of_hse(j);
-		if (isRigidBody(p)) continue;
+		if (hse->isRigidBody()) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
 
@@ -496,7 +502,7 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && isRigidBody(t1))
+	    if (t1->surf == t2->surf && a->isRigidBody())
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
@@ -539,7 +545,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && isRigidBody(t1))
+	    if (t1->surf == t2->surf && a->isRigidBody())
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
@@ -576,10 +582,6 @@ void CollisionSolver::printDebugVariable(){
 	std::cout << "Enter EdgeToEdge " << edg_to_edg 
 		  << " times"<< std::endl;
 	std::cout << "Enter PointToTri " << pt_to_tri 
-		  << " times"<< std::endl;
-	std::cout << "Enter movingEdgeToEdge " << moving_edg_to_edg 
-		  << " times"<< std::endl;
-	std::cout << "Enter movingPointToTri " << moving_pt_to_tri 
 		  << " times"<< std::endl;
 	std::cout << "Enter isCoplanar " << is_coplanar
 		  << " times"<< std::endl;
@@ -630,6 +632,10 @@ POINT* CD_BOND::Point_of_hse(int i) const{
 			  m_bond->end;
 }
 
+bool CD_BOND::isRigidBody()const{
+	return false;
+}
+
 double CD_TRI::max_static_coord(int dim){
     double ans = -HUGE;
     for (int i = 0; i < 3; ++i){
@@ -675,6 +681,14 @@ POINT* CD_TRI::Point_of_hse(int i) const{
 	return NULL;
     else
         return Point_of_tri(m_tri)[i];
+}
+
+bool CD_TRI::isRigidBody()const{
+    if (wave_type(Hyper_surf(m_tri->surf)) == NEUMANN_BOUNDARY ||
+        wave_type(Hyper_surf(m_tri->surf)) == MOVABLE_BODY_BOUNDARY)
+    	return true;
+    else
+        return false;
 }
 /*******************************
 * utility functions start here *
@@ -730,25 +744,9 @@ void unsortHseList(std::vector<CD_HSE*>& hseList){
 }
 
 bool isRigidBody(const CD_HSE* hse){
-	POINT* pt = hse->Point_of_hse(0);
-	return isRigidBody(pt);
+	return hse->isRigidBody();
 }
 
-bool isRigidBody(const POINT* pt){
-	if (wave_type(pt->hs) == NEUMANN_BOUNDARY ||
-	    wave_type(pt->hs) == MOVABLE_BODY_BOUNDARY)
-	    return true;
-	else
-	    return false;
-}
-
-bool isRigidBody(const TRI* tri){
-	if (wave_type(Hyper_surf(tri->surf)) == NEUMANN_BOUNDARY ||
-	    wave_type(Hyper_surf(tri->surf)) == MOVABLE_BODY_BOUNDARY)
-	    return true;
-	else
-	    return false;
-}
 //functions for UF alogrithm
 inline int& weight(POINT* p){
 	STATE* sl = (STATE*)left_state(p);
