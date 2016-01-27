@@ -26,8 +26,9 @@
 *.exe
 *.out
 *.app
-collid3d
+test
 tags
 
 #Outputs
 out-*
+init

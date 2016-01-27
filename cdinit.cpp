@@ -108,13 +108,13 @@ static void initString(Front& front){
 
 	//make a string
 	double pt[2][3] = {{0.25,0.01,0.25},{0.25,0.49,0.25}};
-	POINT     *string_pts[2];
 	NODE      *string_nodes[2];
 	CURVE     *curve;
 	INTERFACE *intfc = front.interf;
 	for (int i = 0; i < 2; ++i)
 	    string_nodes[i] = make_node(Point(pt[i]));
 	curve = make_curve(0,0,string_nodes[0],string_nodes[1]);
+	hsbdry_type(curve) = STRING_HSBDRY;
         double spacing = separation(string_nodes[0]->posn,
 				    string_nodes[1]->posn,3);
 	double dir[3];
@@ -134,7 +134,6 @@ static void initString(Front& front){
             insert_point_in_bond(Point(coords),b,curve);
             b = b->next;
         }
-	hsbdry_type(curve) = STRING_HSBDRY;
 }
 
 void initSurfaceState(
