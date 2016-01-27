@@ -11,6 +11,8 @@ static void propagation_driver(Front*);
 static void collision_point_propagate(Front*,POINTER,POINT*,
         			      POINT *newp,HYPER_SURF_ELEMENT *,
         			      HYPER_SURF*,double,double*);
+static void collision_curve_propagate(Front*,POINTER,CURVE*,CURVE*,double);
+
 int main(int argc, char** argv)
 {
 	static Front front;
@@ -43,6 +45,7 @@ int main(int argc, char** argv)
 	front.vfunc = NULL;
 	//PointPropagationFunction(&front) = fourth_order_point_propagate;
 	PointPropagationFunction(&front) = collision_point_propagate;
+	front.curve_propagate = collision_curve_propagate;
 	char dname[256];
 	sprintf(dname,"%s/intfc",OutName(&front));
 	geomview_interface_plot(dname,front.interf,front.rect_grid);
@@ -129,6 +132,64 @@ static  void propagation_driver(
 	delete collision_solver;
 }       /* end propagation_driver */
 
+static void collision_curve_propagate(
+	Front* front,
+	POINTER wave,
+	CURVE* oldc,
+	CURVE* newc,
+	double dt)
+{
+	BOND *oldb,*newb;
+        POINT *oldp,*newp;
+	int dim = 3;
+	oldp = oldc->start->posn;
+        newp = newc->start->posn;
+	ft_assign(left_state(newp),left_state(oldp),front->sizest);
+        ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	STATE* newsl = (STATE*)left_state(newp);
+	STATE* oldsl = (STATE*)left_state(oldp);
+	for (int i = 0; i < dim; ++i)
+        {
+            newsl->vel[i] = oldsl->vel[i];
+            Coords(newp)[i] = Coords(oldp)[i] + dt*oldsl->vel[i];
+            newsl->collsnImpulse[i] = 0.0;
+            newsl->x_old[i] = Coords(oldp)[i];
+        }
+
+	oldp = oldc->end->posn;
+        newp = newc->end->posn;
+	newsl = (STATE*)left_state(newp);
+	oldsl = (STATE*)left_state(oldp);
+        ft_assign(left_state(newp),left_state(oldp),front->sizest);
+        ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	for (int i = 0; i < dim; ++i)
+        {
+            newsl->vel[i] = oldsl->vel[i];
+            Coords(newp)[i] = Coords(oldp)[i] + dt*oldsl->vel[i];
+            newsl->collsnImpulse[i] = 0.0;
+            newsl->x_old[i] = Coords(oldp)[i];
+        }
+
+
+	for (oldb = oldc->first, newb = newc->first; oldb != oldc->last;
+                oldb = oldb->next, newb = newb->next)
+        {
+            oldp = oldb->end;
+            newp = newb->end;
+	    newsl = (STATE*)left_state(newp);
+	    oldsl = (STATE*)left_state(oldp);
+            ft_assign(left_state(newp),left_state(oldp),front->sizest);
+            ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	    for (int i = 0; i < dim; ++i)
+            {
+                newsl->vel[i] = oldsl->vel[i];
+                Coords(newp)[i] = Coords(oldp)[i] + dt*oldsl->vel[i];
+                newsl->collsnImpulse[i] = 0.0;
+                newsl->x_old[i] = Coords(oldp)[i];
+            }
+        }
+}
+
 static void collision_point_propagate(
         Front *front,
         POINTER wave,
@@ -167,12 +228,6 @@ static void collision_point_propagate(
 	    newsl->collsnImpulse[i] = newsr->collsnImpulse[i] = 0.0;
 	    newsl->x_old[i] = Coords(oldp)[i];
 	}
-	/*printf("x_old = [%f %f %f]",
-		newsl->x_old[0],newsl->x_old[1],newsl->x_old[2]);
-	printf("x_new = [%f %f %f]\n",
-		Coords(newp)[0],Coords(newp)[1],Coords(newp)[2]);
-	printf("vel = [%f %f %f], dt = %f\n",
-		vel[0],vel[1],vel[2],dt);*/
 	newsl->collsn_num = newsr->collsn_num = 0;
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);

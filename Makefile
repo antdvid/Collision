@@ -1,5 +1,5 @@
-CXX=mpicxx -g -fopenmp -Wno-unused-result
-#CXX=mpicxx -g -pedantic -Wall -Wextra -Wno-undef -Wno-comment -Wno-unused-parameter -Wno-long-long -Wctor-dtor-privacy -Wdisabled-optimization -Wformat=2 -Winit-self -Wlogical-op -Wmissing-declarations -Wmissing-include-dirs -Wnoexcept -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion -Wsign-promo -Wstrict-null-sentinel -Wstrict-overflow=5 -Wswitch-default -Werror -Wno-old-style-cast -Wno-redundant-decls
+#CXX=mpicxx -g -fopenmp -Wno-unused-result
+CXX=mpicxx -g -pedantic -Wall -Wextra -Wno-undef -Wno-comment -Wno-unused-parameter -Wno-long-long -Wctor-dtor-privacy -Wdisabled-optimization -Wformat=2 -Winit-self -Wlogical-op -Wmissing-declarations -Wmissing-include-dirs -Wnoexcept -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wshadow -Wsign-conversion -Wsign-promo -Wstrict-null-sentinel -Wstrict-overflow=5 -Wswitch-default -Werror -Wno-old-style-cast -Wno-redundant-decls
 F77=mpif77 
 F77_LIBS=
 
@@ -14,7 +14,7 @@ test: test.o dcollid.o cdinit.o dcollid3d.o
 %.o: %.cpp
 	${CXX} $< -c -I../include $(incs) -frounding-math
 clean:
-	rm -rf *.o test_collid 
+	rm -rf *.o test 
 tagsfile:
 	ctags *.cpp ../src/*/*.[chf]
 
