@@ -222,7 +222,7 @@ void CollisionSolver::setTraitsDimension(){
 void CollisionSolver::resolveCollision()
 {
 	//catch floating point exception: nan/inf
-	feenableexcept(FE_INVALID | FE_OVERFLOW);
+//	feenableexcept(FE_INVALID | FE_OVERFLOW);
 
 	setTraitsDimension();
 
@@ -274,6 +274,7 @@ void CollisionSolver::detectProximity()
 	    std::cout<<num_pairs<<" number of proximated pairs"<<std::endl;
 	}
 	updateAverageVelocity();
+	std::cout << num_pairs << " pair of proximity tris" << std::endl;
 }
 
 void CollisionSolver::detectCollision()
@@ -633,7 +634,16 @@ POINT* CD_BOND::Point_of_hse(int i) const{
 }
 
 bool CD_BOND::isRigidBody()const{
-	return false;
+	if (m_dim == 2)
+	{
+	    if (wave_type(m_bond->start->hs) == NEUMANN_BOUNDARY ||
+		wave_type(m_bond->start->hs) == MOVABLE_BODY_BOUNDARY)
+		return true;
+	    else
+		return false;
+	}
+	else if (m_dim == 3)
+	    return false;
 }
 
 double CD_TRI::max_static_coord(int dim){

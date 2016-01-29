@@ -63,7 +63,8 @@ public:
 class CD_BOND: public CD_HSE{
 public:
 	BOND* m_bond;
-	CD_BOND(BOND* bond):m_bond(bond){}
+	int m_dim;
+	CD_BOND(BOND* bond, int dim):m_bond(bond), m_dim(dim){}
 	double max_static_coord(int);
 	double min_static_coord(int);
 	double max_moving_coord(int,double);

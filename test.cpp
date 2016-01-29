@@ -232,4 +232,3 @@ static void collision_point_propagate(
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */
-
