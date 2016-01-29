@@ -644,6 +644,8 @@ bool CD_BOND::isRigidBody()const{
 	}
 	else if (m_dim == 3)
 	    return false;
+	else
+	    return false;
 }
 
 double CD_TRI::max_static_coord(int dim){
