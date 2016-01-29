@@ -97,7 +97,7 @@ static void initString(Front& front){
         center[2] = 0.3;
         double edge[MAXD];
         edge[0] = edge[1] = 0.15;
-        edge[2] = 0.01;
+        edge[2] = 0.03;
 	FT_MakeCuboidSurf(&front,center,edge,1,2,
                         FIRST_PHYSICS_WAVE_TYPE,
                         1,

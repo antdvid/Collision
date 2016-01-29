@@ -11,6 +11,8 @@ static void propagation_driver(Front*);
 static void collision_point_propagate(Front*,POINTER,POINT*,
         			      POINT *newp,HYPER_SURF_ELEMENT *,
         			      HYPER_SURF*,double,double*);
+static void collision_curve_propagate(Front *front,POINTER wave,
+        			      CURVE *oldc,CURVE *newc,double dt);
 int main(int argc, char** argv)
 {
 	static Front front;
@@ -43,6 +45,7 @@ int main(int argc, char** argv)
 	front.vfunc = NULL;
 	//PointPropagationFunction(&front) = fourth_order_point_propagate;
 	PointPropagationFunction(&front) = collision_point_propagate;
+	front.curve_propagate = collision_curve_propagate;
 	char dname[256];
 	sprintf(dname,"%s/intfc",OutName(&front));
 	geomview_interface_plot(dname,front.interf,front.rect_grid);
@@ -178,3 +181,49 @@ static void collision_point_propagate(
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */
 
+static void collision_curve_propagate(
+        Front *front,
+        POINTER wave,
+	CURVE *oldc,
+        CURVE *newc,
+        double              dt)
+{
+	BOND *oldb,*newb;
+        POINT *oldp,*newp;
+
+        if (is_bdry(oldc)) return;
+
+	oldp = oldc->start->posn;
+        newp = newc->start->posn;
+        ft_assign(left_state(newp),left_state(oldp),front->sizest);
+        ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	for (int i = 0; i < 3; ++i)
+	{
+	    ((STATE*)(left_state(newp)))->x_old[i] = Coords(oldp)[i];
+	    Coords(newp)[i] = Coords(oldp)[i];
+	}
+
+        oldp = oldc->end->posn;
+        newp = newc->end->posn;
+        ft_assign(left_state(newp),left_state(oldp),front->sizest);
+        ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	for (int i = 0; i < 3; ++i)
+	{
+	    ((STATE*)(left_state(newp)))->x_old[i] = Coords(oldp)[i];
+	    Coords(newp)[i] = Coords(oldp)[i];
+	}
+
+        for (oldb = oldc->first, newb = newc->first; oldb != oldc->last;
+                oldb = oldb->next, newb = newb->next)
+        {
+            oldp = oldb->end;
+            newp = newb->end;
+            ft_assign(left_state(newp),left_state(oldp),front->sizest);
+            ft_assign(right_state(newp),right_state(oldp),front->sizest);
+	    for (int i = 0; i < 3; ++i)
+	    {
+	        ((STATE*)(left_state(newp)))->x_old[i] = Coords(oldp)[i];
+		Coords(newp)[i] = Coords(oldp)[i];
+	    }
+        }
+}       /* fourth_order_point_propagate */

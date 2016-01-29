@@ -14,7 +14,7 @@ test: test.o dcollid.o cdinit.o dcollid3d.o
 %.o: %.cpp
 	${CXX} $< -c -I../include $(incs) -frounding-math
 clean:
-	rm -rf *.o test_collid 
+	rm -rf *.o test 
 tagsfile:
 	ctags *.cpp ../src/*/*.[chf]
 
