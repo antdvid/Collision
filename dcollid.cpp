@@ -720,25 +720,25 @@ double distBetweenCoords(double* v1, double* v2)
 	return std::sqrt(dist);
 }
 
-inline void addVec(double* v1, double* v2, double* ans)
+void addVec(double* v1, double* v2, double* ans)
 {
 	for (int i = 0; i < 3; ++i)
 	    ans[i] = v1[i]+v2[i];
 }
 
-inline void minusVec(double* v1, double* v2, double* ans)
+void minusVec(double* v1, double* v2, double* ans)
 {
 	for (int i = 0; i < 3; ++i)
 	    ans[i] = v1[i]-v2[i];
 }
 
-inline void scalarMult(double a,double* v, double* ans)
+void scalarMult(double a,double* v, double* ans)
 {
 	for (int i = 0; i < 3; ++i)
             ans[i] = a*v[i];	
 }
 
-double myDet3d(double a[3][3]){
+extern double myDet3d(double a[3][3]){
     return  a[0][0]*(a[1][1]*a[2][2] - a[2][1]*a[1][2]) 
 	  - a[0][1]*(a[1][0]*a[2][2] - a[2][0]*a[1][2]) 
 	  + a[0][2]*(a[1][0]*a[2][1] - a[2][0]*a[1][1]);
@@ -760,7 +760,7 @@ bool isRigidBody(const CD_HSE* hse){
 }
 
 //functions for UF alogrithm
-inline int& weight(POINT* p){
+int& weight(POINT* p){
 	STATE* sl = (STATE*)left_state(p);
 	return sl->impZone.num_pts;
 }
@@ -770,7 +770,7 @@ inline POINT*& root(POINT* p){
 	return sl->impZone.root;
 }
 
-inline POINT*& next_pt(POINT* p){
+POINT*& next_pt(POINT* p){
 	STATE* sl = (STATE*)left_state(p);
         return sl->impZone.next_pt;
 }

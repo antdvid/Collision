@@ -8,8 +8,8 @@
 #endif
 
 #define DEBUGGING false
-const double ROUND_EPS = 1e-10;
-const double EPS = 1e-7;
+const double ROUND_EPS = 1e-13;
+const double EPS = 1e-6;
 const double DT = 0.001;
 /*
 user-defined state should include the following
@@ -241,6 +241,13 @@ struct reportCollision{
 		     collsn_solver(solver){}
     // We write the elements with respect to 'boxes' to the output
     void operator()( const CD_HSE* a, const CD_HSE* b) {
+	/*printf("a's max_coords = %f, min_coords = %f\n",
+	const_cast<CD_HSE*>(a)->max_moving_coord(2,0.00431666666667),
+	const_cast<CD_HSE*>(a)->min_moving_coord(2,0.00431666666667));
+	printf("b's max_coords = %f, min_coords = %f\n",
+	const_cast<CD_HSE*>(b)->max_moving_coord(2,0.00431666666667),
+	const_cast<CD_HSE*>(b)->min_moving_coord(2,0.00431666666667));
+	*/
 	if (collsn_solver->isCollision(a,b)){
 	    num_pairs ++;
 	    is_collision = true;
@@ -249,6 +256,7 @@ struct reportCollision{
 };
 
 void initSurfaceState(SURFACE*,const double*);
+void initCurveState(CURVE*,const double*);
 void initTestModule(Front&, char*);
 void Pts2Vec(const POINT*, const POINT*, double*); 
 void scalarMult(double a,double* v, double* ans); 
