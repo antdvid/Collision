@@ -8,7 +8,7 @@
 #endif
 
 #define DEBUGGING false
-const double ROUND_EPS = 1e-13;
+const double ROUND_EPS = 1e-10;
 const double EPS = 1e-6;
 const double DT = 0.001;
 /*
@@ -28,6 +28,7 @@ struct STATE{
 	double x_old[3];
 	int    collsn_num;
 	bool   has_collsn;
+	bool   is_fixed;
 	UF     impZone;
 };*/
 
@@ -41,7 +42,6 @@ public:
 	virtual double min_moving_coord(int,double) = 0;
 	virtual POINT* Point_of_hse(int) const  = 0;
 	virtual int num_pts() const= 0;
-	virtual bool isRigidBody() const{return false;}
 	virtual ~CD_HSE(){};
 };
 
@@ -56,7 +56,6 @@ public:
 	double min_moving_coord(int,double);
 	POINT* Point_of_hse(int) const;
 	int num_pts() const {return 3;}
-	bool isRigidBody() const;
 };
 
 //wrap class for bond
@@ -71,7 +70,6 @@ public:
 	double min_moving_coord(int,double);
 	POINT* Point_of_hse(int) const;
 	int num_pts()const{return 2;}
-	bool isRigidBody()const;
 };
 
 //wrap class for point
@@ -223,7 +221,6 @@ struct reportProximity{
     reportProximity(int &npair,CollisionSolver* solver): 
 			 	 num_pairs(npair = 0),
 				 collsn_solver(solver){}
-    // We write the elements with respect to 'boxes' to the output
     void operator()( const CD_HSE* a, const CD_HSE* b) {
 	if(collsn_solver->isProximity(a,b)){
 	    num_pairs++;
@@ -239,15 +236,7 @@ struct reportCollision{
 		     is_collision(status), 
 		     num_pairs(npairs = 0), 
 		     collsn_solver(solver){}
-    // We write the elements with respect to 'boxes' to the output
     void operator()( const CD_HSE* a, const CD_HSE* b) {
-	/*printf("a's max_coords = %f, min_coords = %f\n",
-	const_cast<CD_HSE*>(a)->max_moving_coord(2,0.00431666666667),
-	const_cast<CD_HSE*>(a)->min_moving_coord(2,0.00431666666667));
-	printf("b's max_coords = %f, min_coords = %f\n",
-	const_cast<CD_HSE*>(b)->max_moving_coord(2,0.00431666666667),
-	const_cast<CD_HSE*>(b)->min_moving_coord(2,0.00431666666667));
-	*/
 	if (collsn_solver->isCollision(a,b)){
 	    num_pairs ++;
 	    is_collision = true;
@@ -264,9 +253,10 @@ void addVec(double* v1, double* v2, double* ans);
 void minusVec(double* v1, double* v2, double* ans); 
 double myDet3d(double[][3]);
 double distBetweenCoords(double* v1, double* v2);
-extern bool isRigidBody(const CD_HSE*);
 extern void printPointList(POINT**, const int);
 extern void createImpZone(POINT*[],int);
 void unsortHseList(std::vector<CD_HSE*>&);
 POINT*& next_pt(POINT*);
 int& weight(POINT*);
+bool isRigidBody(const POINT*);
+bool isRigidBody(const CD_HSE*);

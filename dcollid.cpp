@@ -134,7 +134,7 @@ void CollisionSolver::computeAverageVelocity(){
             }
         }
 	if (debugging("collision"))
-	    std::cout << "Largest average velocity is " 
+	    std::cout << "Maximum average velocity is " 
 		      << max_vel[0] << " "
 		      << max_vel[1] << " "
 		      << max_vel[2] << std::endl; 
@@ -253,11 +253,7 @@ void CollisionSolver::resolveCollision()
 	//update position using average velocity
 	updateFinalPosition();
 	stop_clock("updateFinalPosition");
-
-	start_clock("reduceSuperelast");
-	reduceSuperelast();
-	stop_clock("reduceSuperelast");
-
+	
 	start_clock("updateFinalVelocity");
 	//update velocity using average velocity
 	updateFinalVelocity();
@@ -292,6 +288,7 @@ void CollisionSolver::detectCollision()
 		  hseList.end(),reportCollision(is_collision,cd_pair,this),
 		  traitsForCollision());
 	    stop_clock("cgal_collision");
+
 	    updateAverageVelocity();
 	    std::cout<<"    #"<<niter << ": " << cd_pair 
 		     << " pair of collision tris" << std::endl;
@@ -321,8 +318,7 @@ bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
 	    CD_HSE* hse = hseList[i];
 	    int np = hse->num_pts();
 	    if (isRigidBody(hse)) continue;
-	    if (np <= 2) np--;
-	    for (int j = 0; j < np; ++j){
+	    for (int j = 0; j < ((np == 2) ? 1 : np); ++j){
 		POINT* p[2];
 		STATE* sl[2];
 		p[0] = hse->Point_of_hse(j%np);	
@@ -368,6 +364,13 @@ bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
 		}
 		else
 		{
+		    	printf("Warning: len0 = %e, len_new = %e, len_old = %e\n",
+			    len0,len_new,len_old);
+			printf("p0 = %p, p1 = %p\n",(void*)p[0],(void*)p[1]);
+			printf("x_old[0] = [%f %f %f]\n",sl[0]->x_old[0],sl[0]->x_old[1],sl[0]->x_old[2]);
+			printf("avgVel[0] = [%f %f %f]\n",sl[0]->avgVel[0],sl[0]->avgVel[1],sl[0]->avgVel[2]);
+			printf("x_old[1] = [%f %f %f]\n",sl[1]->x_old[0],sl[1]->x_old[1],sl[1]->x_old[2]);
+			printf("avgVel[1] = [%f %f %f]\n",sl[1]->avgVel[0],sl[1]->avgVel[1],sl[1]->avgVel[2]);
 		        double v_tmp[3];
                         addVec(sl[0]->avgVel,sl[1]->avgVel,v_tmp);
                         scalarMult(0.5,v_tmp,v_tmp);
@@ -450,6 +453,10 @@ void CollisionSolver::updateAverageVelocity()
 	double maxSpeed = 0;
 	double* maxVel = NULL;
 
+        start_clock("reduceSuperelast");
+	reduceSuperelast();
+	stop_clock("reduceSuperelast");
+
 	unsortHseList(hseList);
 	for (unsigned i = 0; i < hseList.size(); ++i)
 	{
@@ -458,7 +465,7 @@ void CollisionSolver::updateAverageVelocity()
 	    for (int j = 0; j < np; ++j)
 	    {
 		p = hse->Point_of_hse(j);
-		if (hse->isRigidBody()) continue;
+		if (isRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
 
@@ -503,7 +510,7 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && a->isRigidBody())
+	    if (t1->surf == t2->surf && isRigidBody(a))
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
@@ -546,7 +553,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && a->isRigidBody())
+	    if (t1->surf == t2->surf && isRigidBody(a))
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
@@ -608,8 +615,8 @@ double CD_BOND::max_moving_coord(int dim,double dt){
     for (int i = 0; i < 2; ++i){
 	POINT* pt = (i == 0)? m_bond->start : m_bond->end;
 	STATE* sl = (STATE*)left_state(pt);
-	ans = std::max(ans,Coords(pt)[dim]);
-	ans = std::max(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt); 
+	ans = std::max(ans,sl->x_old[dim]);
+	ans = std::max(ans,sl->x_old[dim]+sl->avgVel[dim]*dt); 
     }    
     return ans;
 }
@@ -619,8 +626,8 @@ double CD_BOND::min_moving_coord(int dim,double dt){
     for (int i = 0; i < 2; ++i){
 	POINT* pt = (i == 0)? m_bond->start : m_bond->end;
 	STATE* sl = (STATE*)left_state(pt);
-	ans = std::min(ans,Coords(pt)[dim]);
-	ans = std::min(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt); 
+	ans = std::min(ans,sl->x_old[dim]);
+	ans = std::min(ans,sl->x_old[dim]+sl->avgVel[dim]*dt); 
     }    
     return ans;
 }
@@ -633,26 +640,12 @@ POINT* CD_BOND::Point_of_hse(int i) const{
 			  m_bond->end;
 }
 
-bool CD_BOND::isRigidBody()const{
-	if (m_dim == 2)
-	{
-	    if (wave_type(m_bond->start->hs) == NEUMANN_BOUNDARY ||
-		wave_type(m_bond->start->hs) == MOVABLE_BODY_BOUNDARY)
-		return true;
-	    else
-		return false;
-	}
-	else if (m_dim == 3)
-	    return false;
-	else
-	    return false;
-}
-
 double CD_TRI::max_static_coord(int dim){
     double ans = -HUGE;
     for (int i = 0; i < 3; ++i){
 	POINT* pt = Point_of_tri(m_tri)[i];
-	ans = std::max(Coords(pt)[dim],ans);
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::max(sl->x_old[dim],ans);
     }
     return ans;
 }
@@ -661,7 +654,8 @@ double CD_TRI::min_static_coord(int dim){
     double ans = HUGE;
     for (int i = 0; i < 3; ++i){
 	POINT* pt = Point_of_tri(m_tri)[i];
-	ans = std::min(Coords(pt)[dim],ans);
+	STATE* sl = (STATE*)left_state(pt);
+	ans = std::min(sl->x_old[dim],ans);
     }
     return ans;
 }
@@ -671,8 +665,8 @@ double CD_TRI::max_moving_coord(int dim,double dt){
     for (int i = 0; i < 3; ++i){
 	POINT* pt = Point_of_tri(m_tri)[i];
 	STATE* sl = (STATE*)left_state(pt);
-	ans = std::max(ans,Coords(pt)[dim]);
-	ans = std::max(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt);
+	ans = std::max(ans,sl->x_old[dim]);
+	ans = std::max(ans,sl->x_old[dim]+sl->avgVel[dim]*dt);
     }
     return ans;
 }
@@ -682,8 +676,8 @@ double CD_TRI::min_moving_coord(int dim,double dt){
     for (int i = 0; i < 3; ++i){
 	POINT* pt = Point_of_tri(m_tri)[i];
 	STATE* sl = (STATE*)left_state(pt);
-	ans = std::min(ans,Coords(pt)[dim]);
-	ans = std::min(ans,Coords(pt)[dim]+sl->avgVel[dim]*dt);
+	ans = std::min(ans,sl->x_old[dim]);
+	ans = std::min(ans,sl->x_old[dim]+sl->avgVel[dim]*dt);
     }
     return ans;
 }
@@ -695,13 +689,6 @@ POINT* CD_TRI::Point_of_hse(int i) const{
         return Point_of_tri(m_tri)[i];
 }
 
-bool CD_TRI::isRigidBody()const{
-    if (wave_type(Hyper_surf(m_tri->surf)) == NEUMANN_BOUNDARY ||
-        wave_type(Hyper_surf(m_tri->surf)) == MOVABLE_BODY_BOUNDARY)
-    	return true;
-    else
-        return false;
-}
 /*******************************
 * utility functions start here *
 *******************************/
@@ -753,10 +740,6 @@ void unsortHseList(std::vector<CD_HSE*>& hseList){
 		sorted(hse->Point_of_hse(i)) = NO;
 	    }
 	}
-}
-
-bool isRigidBody(const CD_HSE* hse){
-	return hse->isRigidBody();
 }
 
 //functions for UF alogrithm
@@ -832,4 +815,16 @@ void printPointList(POINT** plist,const int n){
 	    printf("pt[%d] = [%f %f %f]\n",i,Coords(plist[i])[0],
 		Coords(plist[i])[1],Coords(plist[i])[2]);
 	}
+}
+
+bool isRigidBody(const POINT* p){
+    STATE* sl = (STATE*)left_state(p);
+    return sl->is_fixed;
+}
+
+bool isRigidBody(const CD_HSE* hse){
+    for (int i = 0; i < hse->num_pts(); ++i)
+   	if (isRigidBody(hse->Point_of_hse(i)))
+	    return true;
+    return false;
 }

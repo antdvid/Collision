@@ -7,7 +7,6 @@ static bool EdgeToEdge(POINT**,double,double root = 0.0);
 static bool isCoplanar(POINT**,double,double*);
 static void EdgeToEdgeImpulse(POINT**, double*, double, double, double,double);
 static void PointToTriImpulse(POINT**, double*, double*, double,double);
-static bool isRigidBody(POINT*);
 
 //functions in CollisionSolver3d
 void CollisionSolver3d::assembleFromInterface(
@@ -955,7 +954,10 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
-	m_impulse *= dt / (dt + root);
+	if (dt+root > ROUND_EPS)
+	    m_impulse *= dt / (dt + root);
+	else
+	    m_impulse = 0.0;
 
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
@@ -1017,16 +1019,3 @@ static void unsort_surface_point(SURFACE *surf)
             }
         }
 }       /* end unsort_surface_point */
-
-static bool isRigidBody(POINT* p){
-	if (p->hs)
-	{
-	    if (wave_type(p->hs) == NEUMANN_BOUNDARY ||
-		wave_type(p->hs) == MOVABLE_BODY_BOUNDARY)
-		return true;
-	    else
-		return false;
-	}
-	else
-	    return false;
-}
