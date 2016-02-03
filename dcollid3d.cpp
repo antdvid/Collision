@@ -73,6 +73,8 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 		}
                 p = next_pt(p);
         }
+	if (debugging("collision"))
+	    printf("%d number of points in this zone\n",num_pts);
 	//compute center and veclocity of impact Zone
 	for (int i = 0; i < m_dim; ++i){
 	    x_cm[i] /= num_pts;
@@ -628,7 +630,23 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
  * x21*x21*a - x21*x43*b = x21*x31
  * -x21*x43*a + x43*x43*b = -x43*x31
  */
-
+	/*
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	}
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %e\n\n",root,h);
+*/
 	double x21[3], x43[3], x31[3];
 	double a, b;
 	double tmp[3];
@@ -727,6 +745,7 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	for (int i = 0; i < 3; ++i)
             nor[i] /= nor_mag;
 
+	//printf("real EdgeToEdge collision, dist = %e\n\n",dist);
 	EdgeToEdgeImpulse(pts, nor, a, b, dist, root);
 	return true;
 }
@@ -742,6 +761,23 @@ static bool PointToTri(POINT** pts, double h, double root)
  * x13*x13*w1 + x13*x23*w2 = x13*x43
  * x13*x23*w1 + x23*x23*w2 = x23*x43
  */
+/*
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	}
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %f\n\n",root,h);
+*/
 	double w[3] = {0.0};
 	double x13[3], x23[3], x43[3];
 	double nor[3] = {0.0}, nor_mag = 0.0, dist, det;
@@ -830,6 +866,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    if (tmp_dist > c_len) 
 		c_len = tmp_dist;
 	}
+//	printf("dist = %e, h = %f, w = [%f %f %f]\n",dist,h,w[0],w[1],w[2]);
 	if (dist > h)
 	    return false;
 	for (int i = 0; i < 3; ++i)
@@ -839,6 +876,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    if (w[i] > 1+eps || w[i] < -eps) 
 		return false;
 	}
+//	printf("real PointToTri collision, dist = %e\n\n",dist);
 	PointToTriImpulse(pts, nor, w, dist,root);
 	return true;
 }
@@ -857,7 +895,7 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	double k, m, lambda, dt, h;
 	k      = CollisionSolver::getSpringConstant();
 	m      = CollisionSolver::getPointMass();
-	dt     = CollisionSolver::getTimeStepSize() - root;
+	dt     = CollisionSolver::getTimeStepSize();
 	lambda = CollisionSolver::getFrictionConstant(); 
 	h      = CollisionSolver::getFabricThickness();
 	dist   = h - dist;
@@ -879,8 +917,16 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
-	m_impulse *= dt / (dt + root);
 
+/*
+	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
+	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
+	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
+	printf("m_impuse = %f, impulse = %f, w = [%f %f %f]\n",
+		m_impulse,impulse,w[0],w[1],w[2]);
+	printf("dt = %f, root = %f\n",dt,root);
+	printf("k = %f, m = %f\n",k,m);
+*/
 	for (int i = 0; i < 3; ++i)
 	{
 	    for(int j = 0; j < 3; ++j)
@@ -889,8 +935,8 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 		if (fabs(vt) > ROUND_EPS)
 		    sl[i]->friction[j] += std::max(-fabs(lambda * w[i] * 
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
-		sl[i]->collsn_num += 1;
 	    }
+	    sl[i]->collsn_num += 1;
 	}
 	for (int j = 0; j < 3; ++j)
 	{
@@ -898,8 +944,15 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    if (fabs(vt) > ROUND_EPS)
 	        sl[3]->friction[j] += std::max(-fabs(lambda * 
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
-	    sl[3]->collsn_num += 1;
 	}
+	sl[3]->collsn_num += 1;
+/*
+	for (int i = 0; i < 4; ++i){
+	    printf("pt[%d], collsnImp = [%f %f %f], friction = [%f %f %f]\n",
+	i, sl[i]->collsnImpulse[0],sl[i]->collsnImpulse[1],sl[i]->collsnImpulse[2],
+	sl[i]->friction[0],sl[i]->friction[1],sl[i]->friction[2]);
+	}
+*/
 	for (int kk = 0; kk < 4; kk++)
 	for (int j = 0; j < 3; ++j){
 	    if (isnan(sl[kk]->collsnImpulse[j]) ||
@@ -932,7 +985,7 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	double k, m, lambda, dt, h;
 	k      = CollisionSolver::getSpringConstant();
 	m      = CollisionSolver::getPointMass();
-	dt     = CollisionSolver::getTimeStepSize() - root;
+	dt     = CollisionSolver::getTimeStepSize();
 	lambda = CollisionSolver::getFrictionConstant(); 
 	h      = CollisionSolver::getFabricThickness();
 	dist   = h - dist;
@@ -954,11 +1007,18 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
-	if (dt+root > ROUND_EPS)
-	    m_impulse *= dt / (dt + root);
-	else
-	    m_impulse = 0.0;
 
+/*
+	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
+	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
+	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
+	printf("m_impuse = %f, impulse = %f, a = [%f %f]\n",
+		m_impulse,impulse,a,b);
+	printf("dt = %f, root = %f\n",dt,root);
+	for (int i = 0; i < 4; ++i)
+	printf("p[%d] = [%f %f %f]\n",i,
+		Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+*/
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
 	{
@@ -967,29 +1027,28 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    if (fabs(vt) > ROUND_EPS)
 	        sl[0]->friction[j] += std::max(-fabs(lambda * (1.0-a) *
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
-	    sl[0]->collsn_num += 1;
 
 	    //p[1]
 	    sl[1]->collsnImpulse[j] += a * m_impulse * nor[j];
 	    if (fabs(vt) > ROUND_EPS)
 	        sl[1]->friction[j] += std::max(-fabs(lambda * a * 
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
-	    sl[1]->collsn_num += 1;
 
 	    //p[2]
 	    sl[2]->collsnImpulse[j] -= (1.0 - b) * m_impulse * nor[j];
 	    if (fabs(vt) > ROUND_EPS)
 	        sl[2]->friction[j] += std::max(-fabs(lambda * (1.0 - b) *
 			m_impulse/vt), -1.0)*(v_rel[j] - vn * nor[j]);
-	    sl[2]->collsn_num += 1;
 
 	    //p[3]
 	    sl[3]->collsnImpulse[j] -= b * m_impulse * nor[j];
 	    if (fabs(vt) > ROUND_EPS)
 	        sl[3]->friction[j] += std::max(-fabs(lambda * b * 
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
-	    sl[3]->collsn_num += 1;
 	}
+	for (int j = 0; j < 4; ++j)
+	     sl[j]->collsn_num += 1;
+
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < 3; ++j){
 	    if (isnan(sl[i]->collsnImpulse[j]) ||

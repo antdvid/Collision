@@ -4,6 +4,7 @@ static void initBalls(Front&);
 static void initPlane(Front&);
 static void initString(Front&);
 static void initMultipleStrings(Front&);
+static void initCurveToPlane(Front&);
 static CURVE* make3dCurve(Front&,double[][3],int);
 
 void initTestModule(Front &front, char* in_name)
@@ -13,14 +14,16 @@ void initTestModule(Front &front, char* in_name)
         CursorAfterString(infile,"Enter problem type: ");
         fscanf(infile,"%s",mesg);
         (void) printf("%s\n",mesg);
-        if (mesg[0] == 'B' || mesg[0] == 'b')
+        if      (mesg[0] == 'B')
             initBalls(front);
         else if (mesg[0] == 'P')
 	    initPlane(front);
-	else if (mesg[0] == 'S' || mesg[0] == 's')
+	else if (mesg[0] == 'S')
 	    initString(front);
 	else if (mesg[0] == 'M')
 	    initMultipleStrings(front);
+	else if (strcmp(mesg,"CurveToPlane") == 0)
+	    initCurveToPlane(front);
 	else
         {
             std::cout << "Unknown problem type: " << mesg << std::endl;
@@ -112,7 +115,33 @@ static void initString(Front& front){
 
 	//make a string
 	double pt[2][3] = {{0.25,0.01,0.25},{0.25,0.49,0.25}};
+	make3dCurve(front,pt,STRING_HSBDRY);
+}
+
+static void initCurveToPlane(Front& front){
+	double center[MAXD];
+        SURFACE* surf;
+
+	//make a cuboid
+	center[0] = center[1] = 0.25;
+        center[2] = 0.13;
+        double edge[MAXD];
+        edge[0] = edge[1] = 0.2;
+        edge[2] = 0.02;
+	FT_MakeCuboidSurf(&front,center,edge,1,2,
+                        MOVABLE_BODY_BOUNDARY,
+                        1,
+                        &surf);	
+	const double vel1[] = {0.0,0.0,0.0};
+        //initialize velocity function to straight_velocity
+        initSurfaceState(surf,vel1);
+
+	//make a string
+	//string end should higher than cuboid: center[2]+edge[2]
+	double pt[2][3] = {{0.25,0.1,0.3},{0.25,0.25,0.152}};
 	CURVE     *curve = make3dCurve(front,pt,STRING_HSBDRY);
+	const double vel2[] = {0.0,0.1,-0.1};
+	initCurveState(curve,vel2);
 }
 
 static void initMultipleStrings(Front& front){
@@ -154,8 +183,10 @@ static CURVE* make3dCurve(Front& front,double pt[][3],int hsb_type){
                 coords[k] = Coords(string_nodes[0]->posn)[k] +
                                    j*dir[k]*spacing;
             insert_point_in_bond(Point(coords),b,curve);
+	    b->length0 = spacing;
             b = b->next;
         }
+	b->length0 = spacing;
 	return curve;
 }
 
@@ -180,6 +211,9 @@ void initSurfaceState(
                     sl->friction[j] = sr->friction[j] = 0.0;
                     sl->collsn_num = sr->collsn_num = 0;
                     sl->x_old[j] = Coords(p)[j];
+		    if (wave_type(p->hs) == MOVABLE_BODY_BOUNDARY ||
+		        wave_type(p->hs) == NEUMANN_BOUNDARY)
+			sl->is_fixed = true;
                 }
             }
         }

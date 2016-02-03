@@ -105,6 +105,7 @@ static  void propagation_driver(
 
 	    //collision detect and handling
 	    collision_solver->assembleFromInterface(front->interf,front->dt);
+	    collision_solver->setFrictionConstant(0.0);
 	    collision_solver->resolveCollision();
 
             FT_AddTimeStepToCounter(front);
@@ -203,32 +204,23 @@ static void collision_point_propagate(
         double vel[MAXD],s;
         int i, dim = front->rect_grid->dim;
 
-        if (wave_type(oldhs) < MOVABLE_BODY_BOUNDARY)
-        {
-            for (i = 0; i < dim; ++i)
-            {
-                Coords(newp)[i] = Coords(oldp)[i];
-            }
-            return;
-        }
-
-	STATE *newsl,*newsr;
+	STATE *newsl;
         STATE *sl;
 	sl = (STATE*)left_state(oldp);
         newsl = (STATE*)left_state(newp);
-        newsr = (STATE*)right_state(newp);
+        ft_assign(left_state(newp),left_state(oldp),front->sizest);
 
 	for (i = 0; i < dim; ++i)
 	    vel[i] = sl->vel[i];
 
 	for (i = 0; i < dim; ++i)
 	{
-	    newsl->vel[i] = newsr->vel[i] = vel[i];
+	    newsl->vel[i] = vel[i];
             Coords(newp)[i] = Coords(oldp)[i] + dt*vel[i];
-	    newsl->collsnImpulse[i] = newsr->collsnImpulse[i] = 0.0;
+	    newsl->collsnImpulse[i] = 0.0;
 	    newsl->x_old[i] = Coords(oldp)[i];
 	}
-	newsl->collsn_num = newsr->collsn_num = 0;
+	newsl->collsn_num = 0;
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */

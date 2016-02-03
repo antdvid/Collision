@@ -106,6 +106,7 @@ void CollisionSolver::computeAverageVelocity(){
         STATE* sl; 
 	double dt = getTimeStepSize();
 	double max_speed = 0, *max_vel = NULL;
+	POINT* max_pt;
 	//#pragma omp parallel for private(pt,sl)
         for (std::vector<CD_HSE*>::iterator it = hseList.begin();
                 it < hseList.end(); ++it){
@@ -123,21 +124,30 @@ void CollisionSolver::computeAverageVelocity(){
 			std::cout<<"nan avgVel" << std::endl;
 			printf("dt = %e, x_old = %f, x_new = %f\n",
 			dt,sl->x_old[j],Coords(pt)[j]);
-			//clean_up(ERROR);
+			clean_up(ERROR);
 		    }
 		}
 		if (debugging("collision"))
 		if (Mag3d(sl->avgVel) >= max_speed){
 		    max_speed = Mag3d(sl->avgVel);
 		    max_vel = sl->avgVel;
+		    max_pt = pt;
 		}
             }
         }
 	if (debugging("collision"))
+	{
 	    std::cout << "Maximum average velocity is " 
 		      << max_vel[0] << " "
 		      << max_vel[1] << " "
 		      << max_vel[2] << std::endl; 
+	    sl = (STATE*)left_state(max_pt);
+	    printf("x_old = [%f %f %f]\n",
+		   sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	    printf("x_new = [%f %f %f]\n",
+		   Coords(max_pt)[0],Coords(max_pt)[1],Coords(max_pt)[2]);
+	    printf("dt = %f\n",dt);
+	}
 	//restore coords of points to old coords !!!
 	//x_old is the only valid coords for each point 
 	//Coords(point) is for temporary judgement
@@ -179,6 +189,11 @@ void CollisionSolver::computeImpactZone()
                   hseList.end(),reportCollision(is_collision,cd_pair,this),
                   traitsForCollision());
 	    stop_clock("cgal_impactzone");
+
+	    //this step performs as a filter to the average velocity
+	    //do not touch the avgerage velocity if collsion is free
+	    if (is_collision)
+		reduceSuperelast(); 
 
             updateAverageVelocity();
 
@@ -266,17 +281,15 @@ void CollisionSolver::detectProximity()
 	CGAL::box_self_intersection_d(hseList.begin(),hseList.end(),
                                      reportProximity(num_pairs,this),
 				     traitsForProximity());
-	if (debugging("collision")){
-	    std::cout<<num_pairs<<" number of proximated pairs"<<std::endl;
-	}
 	updateAverageVelocity();
-	std::cout << num_pairs << " pair of proximity tris" << std::endl;
+	if (debugging("collision"))
+	std::cout << num_pairs << " pair of proximity" << std::endl;
 }
 
 void CollisionSolver::detectCollision()
 {
 	bool is_collision = true; 
-	const int MAX_ITER = 3;
+	const int MAX_ITER = 5;
 	int niter = 1;
 	int cd_pair = 0;
 
@@ -305,7 +318,11 @@ void CollisionSolver::detectCollision()
 //or between two moving edges 
 extern void createImpZone(POINT* pts[], int num = 4){
 	for (int i = 0; i < num-1; ++i)
+	{
+	    if (isRigidBody(pts[i]) || isRigidBody(pts[i+1]))
+		continue;
 	    mergePoint(pts[i],pts[i+1]); 
+	}
 }
 
 bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
@@ -412,12 +429,11 @@ void CollisionSolver::reduceSuperelast()
 {
 	bool has_superelas = true;
 	int niter = 0, num_edges;
-	const int max_iter = 50;
-	std::cout<<"Start handle superelas: "<<std::endl;
+	const int max_iter = 10;
 	while(has_superelas && niter++ < max_iter){
 	    has_superelas = reduceSuperelastOnce(num_edges);
 	}
-	printf("    #%d: %d edges\n",niter,num_edges);
+	printf("    %d edges are over strain limit after %d iterations\n",num_edges,niter);
 }
 
 void CollisionSolver::updateFinalVelocity()
@@ -453,22 +469,23 @@ void CollisionSolver::updateAverageVelocity()
 	double maxSpeed = 0;
 	double* maxVel = NULL;
 
-        start_clock("reduceSuperelast");
-	reduceSuperelast();
-	stop_clock("reduceSuperelast");
-
 	unsortHseList(hseList);
 	for (unsigned i = 0; i < hseList.size(); ++i)
 	{
 	    CD_HSE* hse = hseList[i];
 	    int np = hse->num_pts(); 
+
 	    for (int j = 0; j < np; ++j)
 	    {
 		p = hse->Point_of_hse(j);
 		if (isRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
-
+	/*	printf("before: avgVel = [%f %f %f]\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+		printf("p = %p, collision_num = %d\n",(void*)p,sl->collsn_num);
+		printf("x_old = %f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+		printf("Impulse = %f %f %f\n",sl->collsnImpulse[0],sl->collsnImpulse[1],sl->collsnImpulse[2]);
+	*/
 		if (sl->collsn_num > 0)
 		{
 		    sl->has_collsn = true;
@@ -487,6 +504,8 @@ void CollisionSolver::updateAverageVelocity()
 		    }
 		    sl->collsn_num = 0;
 		}
+
+		//printf("after: avgVel = [%f %f %f]\n\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 		if (debugging("collision")){
 		    //debugging: print largest speed
 		    double speed = Mag3d(sl->avgVel);
@@ -499,6 +518,8 @@ void CollisionSolver::updateAverageVelocity()
 	if (debugging("collision"))
 	if (maxVel != NULL)
 	    printf("    max velocity = [%f %f %f]\n",maxVel[0],maxVel[1],maxVel[2]);
+	if (debugging("collision"))
+	    printDebugVariable();
 }
 
 bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
