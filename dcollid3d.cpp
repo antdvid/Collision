@@ -35,6 +35,7 @@ void CollisionSolver3d::assembleFromInterface(
 	intfc_curve_loop(intfc,c)
 	{
 	    if (is_bdry(*c)) continue; 
+	    if (hsbdry_type(*c) == MONO_COMP_HSBDRY) continue;
 	    curve_bond_loop(*c,b)
 	    {
 		hseList.push_back(new CD_BOND(b,m_dim));
@@ -44,12 +45,6 @@ void CollisionSolver3d::assembleFromInterface(
 	if (debugging("collision")){
 	    printf("%d num of tris, %d num of bonds\n",n_tri,n_bond);
 	    printf("%lu number of elements is assembled\n",hseList.size());
-	    POINT* p = hseList[0]->Point_of_hse(0);
-	    printf("first tri coords = [%f %f %f]\n",
-		Coords(p)[0],Coords(p)[1],Coords(p)[2]);
-	    STATE* sl = (STATE*)left_state(p);
-	    printf("first tri vel = [%f %f %f]\n",
-		sl->vel[0],sl->vel[1],sl->vel[2]);
 	}
 }
 
@@ -630,23 +625,6 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
  * x21*x21*a - x21*x43*b = x21*x31
  * -x21*x43*a + x43*x43*b = -x43*x31
  */
-	/*
-	printf("x_old:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
-	}
-	printf("x_new:\n");
-	for (int i = 0; i < 4; ++i){
-	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
-	}
-	printf("avgVel:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
-	}
-	printf("root = %e,h = %e\n\n",root,h);
-*/
 	double x21[3], x43[3], x31[3];
 	double a, b;
 	double tmp[3];
@@ -745,7 +723,23 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	for (int i = 0; i < 3; ++i)
             nor[i] /= nor_mag;
 
-	//printf("real EdgeToEdge collision, dist = %e\n\n",dist);
+	/*printf("real EdgeToEdge collision, dist = %e\n\n",dist);
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	}
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %e\n\n",root,h);*/
+
 	EdgeToEdgeImpulse(pts, nor, a, b, dist, root);
 	return true;
 }
@@ -761,23 +755,6 @@ static bool PointToTri(POINT** pts, double h, double root)
  * x13*x13*w1 + x13*x23*w2 = x13*x43
  * x13*x23*w1 + x23*x23*w2 = x23*x43
  */
-/*
-	printf("x_old:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
-	}
-	printf("x_new:\n");
-	for (int i = 0; i < 4; ++i){
-	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
-	}
-	printf("avgVel:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
-	}
-	printf("root = %e,h = %f\n\n",root,h);
-*/
 	double w[3] = {0.0};
 	double x13[3], x23[3], x43[3];
 	double nor[3] = {0.0}, nor_mag = 0.0, dist, det;
@@ -866,7 +843,6 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    if (tmp_dist > c_len) 
 		c_len = tmp_dist;
 	}
-//	printf("dist = %e, h = %f, w = [%f %f %f]\n",dist,h,w[0],w[1],w[2]);
 	if (dist > h)
 	    return false;
 	for (int i = 0; i < 3; ++i)
@@ -876,7 +852,24 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    if (w[i] > 1+eps || w[i] < -eps) 
 		return false;
 	}
-//	printf("real PointToTri collision, dist = %e\n\n",dist);
+	/*
+	printf("real PointToTri collision, dist = %e\n\n",dist);
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	}
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %f\n\n",root,h);
+	*/
 	PointToTriImpulse(pts, nor, w, dist,root);
 	return true;
 }
@@ -1012,12 +1005,19 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
 	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
-	printf("m_impuse = %f, impulse = %f, a = [%f %f]\n",
+	printf("m_impuse = %f, impulse = %f, a = %f, b = %f\n",
 		m_impulse,impulse,a,b);
 	printf("dt = %f, root = %f\n",dt,root);
-	for (int i = 0; i < 4; ++i)
-	printf("p[%d] = [%f %f %f]\n",i,
-		Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	//modify a and b if encounter rigid points
+	for (int j = 0; j < 4; ++j) {
+	    if (isRigidBody(pts[j])){
+		if      (j == 0) a = 1;
+		else if (j == 1) a = 0;
+		else if (j == 2) b = 1;
+		else if (j == 3) b = 0;
+	    }
+	}
+	printf("after modification: a = %f, b = %f\n",a,b);
 */
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)

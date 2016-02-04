@@ -17,7 +17,7 @@ CFL factor: 0.75
 Redistribution interval: 10000000
 Type yes to turn off auto-redistribution: y
 
-Enter problem type: string 
+Enter problem type: String 
 
 Enter yes for debugging: yes
 Enter the debugging string: collision

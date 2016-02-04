@@ -289,7 +289,7 @@ void CollisionSolver::detectProximity()
 void CollisionSolver::detectCollision()
 {
 	bool is_collision = true; 
-	const int MAX_ITER = 5;
+	const int MAX_ITER = 10;
 	int niter = 1;
 	int cd_pair = 0;
 
@@ -317,11 +317,12 @@ void CollisionSolver::detectCollision()
 //a moving point and a moving triangle
 //or between two moving edges 
 extern void createImpZone(POINT* pts[], int num = 4){
-	for (int i = 0; i < num-1; ++i)
+	for (int i = 0; i < num; ++i)
+	for (int j = 0; j < i; ++j)
 	{
-	    if (isRigidBody(pts[i]) || isRigidBody(pts[i+1]))
-		continue;
-	    mergePoint(pts[i],pts[i+1]); 
+	    /*if (isRigidBody(pts[i]) || isRigidBody(pts[j]))
+		continue;*/
+	    mergePoint(pts[i],pts[j]); 
 	}
 }
 
