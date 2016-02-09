@@ -467,6 +467,7 @@ void CollisionSolver::updateAverageVelocity()
 	double maxSpeed = 0;
 	double* maxVel = NULL;
 
+#ifdef __VTK__
 	if (debugging("CollisionImpulse")){
        	  char fname[200] = "vtk_test";
        	  static int count = 0;
@@ -476,6 +477,7 @@ void CollisionSolver::updateAverageVelocity()
        		vtkplotVectorSurface(hseList,fname);	
        	  }
 	}
+#endif
 	unsortHseList(hseList);
 	for (unsigned i = 0; i < hseList.size(); ++i)
 	{
