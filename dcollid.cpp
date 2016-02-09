@@ -189,12 +189,7 @@ void CollisionSolver::computeImpactZone()
                   hseList.end(),reportCollision(is_collision,cd_pair,this),
                   traitsForCollision());
 	    stop_clock("cgal_impactzone");
-
-	    //this step performs as a filter to the average velocity
-	    //do not touch the avgerage velocity if collsion is free
-	    if (is_collision)
-		reduceSuperelast(); 
-
+ 
             updateAverageVelocity();
 
 	    updateImpactZoneVelocity(numZones);
@@ -268,6 +263,8 @@ void CollisionSolver::resolveCollision()
 	//update position using average velocity
 	updateFinalPosition();
 	stop_clock("updateFinalPosition");
+
+	reduceSuperelast();
 	
 	start_clock("updateFinalVelocity");
 	//update velocity using average velocity
@@ -289,7 +286,7 @@ void CollisionSolver::detectProximity()
 void CollisionSolver::detectCollision()
 {
 	bool is_collision = true; 
-	const int MAX_ITER = 10;
+	const int MAX_ITER = 5;
 	int niter = 1;
 	int cd_pair = 0;
 
@@ -470,6 +467,15 @@ void CollisionSolver::updateAverageVelocity()
 	double maxSpeed = 0;
 	double* maxVel = NULL;
 
+	if (debugging("CollisionImpulse")){
+       	  char fname[200] = "vtk_test";
+       	  static int count = 0;
+	  updateFinalPosition();
+       	  if (create_directory(fname,NO)){
+       	  	sprintf(fname,"%s/surf-%03d.vtp",fname,count++);
+       		vtkplotVectorSurface(hseList,fname);	
+       	  }
+	}
 	unsortHseList(hseList);
 	for (unsigned i = 0; i < hseList.size(); ++i)
 	{

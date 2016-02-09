@@ -723,23 +723,6 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	for (int i = 0; i < 3; ++i)
             nor[i] /= nor_mag;
 
-	/*printf("real EdgeToEdge collision, dist = %e\n\n",dist);
-	printf("x_old:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
-	}
-	printf("x_new:\n");
-	for (int i = 0; i < 4; ++i){
-	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
-	}
-	printf("avgVel:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
-	}
-	printf("root = %e,h = %e\n\n",root,h);*/
-
 	EdgeToEdgeImpulse(pts, nor, a, b, dist, root);
 	return true;
 }
@@ -852,24 +835,6 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    if (w[i] > 1+eps || w[i] < -eps) 
 		return false;
 	}
-	/*
-	printf("real PointToTri collision, dist = %e\n\n",dist);
-	printf("x_old:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
-	}
-	printf("x_new:\n");
-	for (int i = 0; i < 4; ++i){
-	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
-	}
-	printf("avgVel:\n");
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
-	}
-	printf("root = %e,h = %f\n\n",root,h);
-	*/
 	PointToTriImpulse(pts, nor, w, dist,root);
 	return true;
 }
@@ -907,11 +872,13 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    vt = 0.0;
 	if (vn < 0)
 	    impulse += vn * 0.5;
-	if (vn * dt < 0.1 * dist)
+	else if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
+	m_impulse = fabs(m_impulse);
 
 /*
+if (fabs(m_impulse) > 20.0){
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
 	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
@@ -919,7 +886,23 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 		m_impulse,impulse,w[0],w[1],w[2]);
 	printf("dt = %f, root = %f\n",dt,root);
 	printf("k = %f, m = %f\n",k,m);
-*/
+	printf("real PointToTri collision, dist = %e\n\n",dist);
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	}
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %f\n\n",root,h);
+}*/
 	for (int i = 0; i < 3; ++i)
 	{
 	    for(int j = 0; j < 3; ++j)
@@ -997,27 +980,35 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	if (vn < 0.0)
 	    impulse += vn * 0.5;
-	if (vn * dt < 0.1 * dist)
+	else if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
+	m_impulse = fabs(m_impulse);
 
-/*
+/*if (fabs(m_impulse) > 20){
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
 	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
 	printf("m_impuse = %f, impulse = %f, a = %f, b = %f\n",
 		m_impulse,impulse,a,b);
 	printf("dt = %f, root = %f\n",dt,root);
-	//modify a and b if encounter rigid points
-	for (int j = 0; j < 4; ++j) {
-	    if (isRigidBody(pts[j])){
-		if      (j == 0) a = 1;
-		else if (j == 1) a = 0;
-		else if (j == 2) b = 1;
-		else if (j == 3) b = 0;
-	    }
+	printf("real EdgeToEdge collision, dist = %e\n\n",dist);
+	printf("x_old:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
 	}
-	printf("after modification: a = %f, b = %f\n",a,b);
+	printf("x_new:\n");
+	for (int i = 0; i < 4; ++i){
+	    printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+	}
+	printf("avgVel:\n");
+	for (int i = 0; i < 4; ++i){
+	    STATE* sl = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	}
+	printf("root = %e,h = %e\n\n",root,h);
+}
 */
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)

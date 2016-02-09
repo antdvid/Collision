@@ -260,3 +260,5 @@ POINT*& next_pt(POINT*);
 int& weight(POINT*);
 bool isRigidBody(const POINT*);
 bool isRigidBody(const CD_HSE*);
+
+void vtkplotVectorSurface(std::vector<CD_HSE*>&,const char*);
