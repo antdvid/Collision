@@ -392,7 +392,7 @@ static bool isCoplanar(POINT* pts[], const double dt, double roots[])
             x[3][0]*(x[1][1]*x[2][2]-x[1][2]*x[2][1]);
 	//solve equation using method from "Art of Scientific Computing"
 	//transform equation to t^3+at^2+bt+c = 0
-	if (fabs(a) > ROUND_EPS){
+	if (fabs(a) > MACH_EPS){
 	    b /= a; c /= a; d /= a;
 	    a = b; b = c; c = d;
 	    double Q, R, theta;
@@ -434,7 +434,7 @@ static bool isCoplanar(POINT* pts[], const double dt, double roots[])
 	}
 	//select and sort roots;
 	for (int i = 0; i < 3; ++i){
-	        roots[i] -= ROUND_EPS;
+	        roots[i] = roots[i]-MACH_EPS;
 	    	if (roots[i] < 0 || roots[i] > dt) 
 		    roots[i] = -1;
 	}
@@ -450,7 +450,7 @@ static bool isCoplanar(POINT* pts[], const double dt, double roots[])
 			a,b,c,d);
 		clean_up(ERROR);
 	    }
-	    if (roots[i] > ROUND_EPS) 
+	    if (roots[i] > MACH_EPS) 
 		return true;
 	}
 	return false;
@@ -702,19 +702,28 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	    addVec(Coords(pts[2]),v2,v2);
 	    minusVec(v1,v2,nor);
 	    nor_mag = Mag3d(nor);
-	    if (nor_mag < ROUND_EPS)
+	    if (nor_mag < MACH_EPS)
 	    {
 	        //v1 == v2; 
 	        //two edges intersect with each other
 	        //normal direction is relative velocity
-		Cross3d(x21,x43,nor);
+		//Cross3d(x21,x43,nor);
+		STATE* sl[4];
+		for (int i = 0; i < 4; ++i)
+		    sl[i] = (STATE*)left_state(pts[i]);
+        	for (int j = 0; j < 3; ++j)
+        	{
+            	    nor[j]  = (1.0-b) * sl[2]->avgVel[j] + b * sl[3]->avgVel[j];
+            	    nor[j] -= (1.0-a) * sl[0]->avgVel[j] + a * sl[1]->avgVel[j];
+        	}
+		//printf("intersect!!!\n");
 	    }
 	    dist = distBetweenCoords(v1,v2);
 	}
 	if (dist > h) 
 	    return false;
 	nor_mag = Mag3d(nor);
-	if (nor_mag < ROUND_EPS)
+	if (nor_mag < MACH_EPS)
 	{
 	    std::cout << "nan nor vector" << std::endl;
 	    clean_up(ERROR);
@@ -871,14 +880,32 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	else
 	    vt = 0.0;
 	if (vn < 0)
-	    impulse += vn * 0.5;
+	{
+	    if (isRigidBody(pts[3]) ||
+	       (isRigidBody(pts[0]) && isRigidBody(pts[1]) &&
+		isRigidBody(pts[2]))){
+		impulse = vn;
+	    }
+	    else
+	        impulse = vn * 0.5;
+	    double sum_w = 0.0;
+	    for (int i = 0; i < 3; ++i)
+	    {
+		if (isRigidBody(pts[i]))
+		        w[i] = 0.0;
+		sum_w += w[i];
+	    }
+	    if (sum_w != 0.0)
+	        scalarMult(1.0/sum_w,w,w);
+	}
 	else if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
 	m_impulse = fabs(m_impulse);
 
-/*
-if (fabs(m_impulse) > 20.0){
+//uncomment the following the debugging purpose
+/*if (fabs(m_impulse) > 2.0){
+	printf("real PointToTri collision, dist = %e\n",dist);
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
 	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
@@ -886,7 +913,6 @@ if (fabs(m_impulse) > 20.0){
 		m_impulse,impulse,w[0],w[1],w[2]);
 	printf("dt = %f, root = %f\n",dt,root);
 	printf("k = %f, m = %f\n",k,m);
-	printf("real PointToTri collision, dist = %e\n\n",dist);
 	printf("x_old:\n");
 	for (int i = 0; i < 4; ++i){
 	    STATE* sl = (STATE*)left_state(pts[i]);
@@ -922,6 +948,10 @@ if (fabs(m_impulse) > 20.0){
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	}
 	sl[3]->collsn_num += 1;
+
+	for (int j = 0; j < 4; ++j)
+	     if(isRigidBody(pts[j])) 
+		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 /*
 	for (int i = 0; i < 4; ++i){
 	    printf("pt[%d], collsnImp = [%f %f %f], friction = [%f %f %f]\n",
@@ -979,20 +1009,31 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    vt = 0.0;
 
 	if (vn < 0.0)
-	    impulse += vn * 0.5;
+	{
+	    if ((isRigidBody(pts[0]) && isRigidBody(pts[1])) ||
+	    	(isRigidBody(pts[2]) && isRigidBody(pts[3])))
+		impulse += vn;
+	    else
+		impulse += vn * 0.5;
+    	    if (isRigidBody(pts[0])) a = 1.0;
+	    if (isRigidBody(pts[1])) a = 0.0;
+	    if (isRigidBody(pts[2])) b = 1.0;
+	    if (isRigidBody(pts[3])) b = 0.0;
+	}
 	else if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
 	m_impulse = fabs(m_impulse);
 
-/*if (fabs(m_impulse) > 20){
+//uncomment the following for the debugging purpose
+/*if (fabs(m_impulse) > 0){
+	printf("real EdgeToEdge collision\n");
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
 	printf("nor = %f %f %f\n",nor[0],nor[1],nor[2]);
 	printf("m_impuse = %f, impulse = %f, a = %f, b = %f\n",
 		m_impulse,impulse,a,b);
-	printf("dt = %f, root = %f\n",dt,root);
-	printf("real EdgeToEdge collision, dist = %e\n\n",dist);
+	printf("root = %e,h = %e, dt = %e\n",root,h,dt);
 	printf("x_old:\n");
 	for (int i = 0; i < 4; ++i){
 	    STATE* sl = (STATE*)left_state(pts[i]);
@@ -1007,9 +1048,10 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    STATE* sl = (STATE*)left_state(pts[i]);
 	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 	}
-	printf("root = %e,h = %e\n\n",root,h);
+	printf("\n");
 }
 */
+
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
 	{
@@ -1038,7 +1080,11 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	}
 	for (int j = 0; j < 4; ++j)
+	{
+	     if(isRigidBody(pts[j])) 
+		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 	     sl[j]->collsn_num += 1;
+	}
 
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < 3; ++j){
