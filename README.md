@@ -6,7 +6,9 @@ For convenience, the data structure SURFACE, TRI, POINT are from FronTier librar
 data structure as long as the SURFACE has a link list for triangles, TRI has pointers to three POINTs and POINT has coordinates(x,y,z).
 ##Numerical Test
 The basic idea of the implementation is originated from the paper "Robust Treatment of Collisions, Contact and Fricition for Cloth Animation", but we modify the method to couple it with FronTier easily. A few numerical test are shown below:
-<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/fall-sphere.gif" width="230">
-<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/fall-body.gif" width="230">
-<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/fall-box.gif" width="230">
+<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-sphere.gif" width="230">
+<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-body.gif" width="230">
+<img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-box.gif" width="230">
+<img style="float: center;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/string_front.gif" width="230">
+<img style="float: center;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/string_rear.gif" width="230">
 
