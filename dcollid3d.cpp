@@ -808,7 +808,6 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    Cross3d(x13, x23, nor);
 	    nor_mag = Mag3d(nor);
 	    dist = Dot3d(x43, nor);
-	    printf("first try dist is %s\n",(dist>0)? ">0":"<=0");
 	    for (int i = 0; i < 3; ++i)
 	        nor[i] /= nor_mag * ((dist > 0)? 1.0:-1.0);
 	    dist = fabs(Dot3d(x43, nor));
@@ -903,6 +902,7 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
 
 //uncomment the following the debugging purpose
+/*
 if (fabs(m_impulse) > 0.0){
 	printf("real PointToTri collision, dist = %e\n",dist);
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
@@ -927,7 +927,7 @@ if (fabs(m_impulse) > 0.0){
 	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 	}
 	printf("root = %e,h = %f\n\n",root,h);
-}
+}*/
 	for (int i = 0; i < 3; ++i)
 	{
 	    for(int j = 0; j < 3; ++j)
@@ -1024,6 +1024,7 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
 
 //uncomment the following for the debugging purpose
+/*
 if (fabs(m_impulse) > 0){
 	printf("real EdgeToEdge collision\n");
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
@@ -1047,7 +1048,7 @@ if (fabs(m_impulse) > 0){
 	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 	}
 	printf("\n");
-}
+}*/
 
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)
