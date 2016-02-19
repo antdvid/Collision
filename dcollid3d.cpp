@@ -700,21 +700,20 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	    scalarMult(b,x43,v2);
 	    addVec(Coords(pts[0]),v1,v1);
 	    addVec(Coords(pts[2]),v2,v2);
-	    minusVec(v1,v2,nor);
+	    minusVec(v2,v1,nor);
 	    nor_mag = Mag3d(nor);
 	    if (nor_mag < MACH_EPS)
 	    {
 	        //v1 == v2; 
 	        //two edges intersect with each other
-	        //normal direction is relative velocity
-		//Cross3d(x21,x43,nor);
+	        //normal direction is calculated with old position 
 		STATE* sl[4];
 		for (int i = 0; i < 4; ++i)
 		    sl[i] = (STATE*)left_state(pts[i]);
         	for (int j = 0; j < 3; ++j)
         	{
-            	    nor[j]  = (1.0-b) * sl[2]->avgVel[j] + b * sl[3]->avgVel[j];
-            	    nor[j] -= (1.0-a) * sl[0]->avgVel[j] + a * sl[1]->avgVel[j];
+            	    nor[j]  = (1.0-b) * sl[2]->x_old[j] + b * sl[3]->x_old[j];
+            	    nor[j] -= (1.0-a) * sl[0]->x_old[j] + a * sl[1]->x_old[j];
         	}
 		//printf("intersect!!!\n");
 	    }
@@ -809,6 +808,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    Cross3d(x13, x23, nor);
 	    nor_mag = Mag3d(nor);
 	    dist = Dot3d(x43, nor);
+	    printf("first try dist is %s\n",(dist>0)? ">0":"<=0");
 	    for (int i = 0; i < 3; ++i)
 	        nor[i] /= nor_mag * ((dist > 0)? 1.0:-1.0);
 	    dist = fabs(Dot3d(x43, nor));
@@ -898,13 +898,12 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    if (sum_w != 0.0)
 	        scalarMult(1.0/sum_w,w,w);
 	}
-	else if (vn * dt < 0.1 * dist)
+	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
-	m_impulse = fabs(m_impulse);
 
 //uncomment the following the debugging purpose
-/*if (fabs(m_impulse) > 2.0){
+if (fabs(m_impulse) > 0.0){
 	printf("real PointToTri collision, dist = %e\n",dist);
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
@@ -928,7 +927,7 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 	}
 	printf("root = %e,h = %f\n\n",root,h);
-}*/
+}
 	for (int i = 0; i < 3; ++i)
 	{
 	    for(int j = 0; j < 3; ++j)
@@ -952,13 +951,13 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	for (int j = 0; j < 4; ++j)
 	     if(isRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
-/*
+
 	for (int i = 0; i < 4; ++i){
 	    printf("pt[%d], collsnImp = [%f %f %f], friction = [%f %f %f]\n",
 	i, sl[i]->collsnImpulse[0],sl[i]->collsnImpulse[1],sl[i]->collsnImpulse[2],
 	sl[i]->friction[0],sl[i]->friction[1],sl[i]->friction[2]);
 	}
-*/
+
 	for (int kk = 0; kk < 4; kk++)
 	for (int j = 0; j < 3; ++j){
 	    if (isnan(sl[kk]->collsnImpulse[j]) ||
@@ -999,8 +998,8 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	/* it is supposed to use the average velocity*/
 	for (int j = 0; j < 3; ++j)
 	{
-	    v_rel[j]  = (1.0-a) * sl[0]->avgVel[j] + a * sl[1]->avgVel[j];
-	    v_rel[j] -= (1.0-b) * sl[2]->avgVel[j] + b * sl[3]->avgVel[j];
+	    v_rel[j]  = (1.0-b) * sl[2]->avgVel[j] + b * sl[3]->avgVel[j];
+	    v_rel[j] -= (1.0-a) * sl[0]->avgVel[j] + a * sl[1]->avgVel[j];
 	}
 	vn = Dot3d(v_rel, nor);
 	if (Dot3d(v_rel, v_rel) > sqr(vn))
@@ -1020,13 +1019,12 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    if (isRigidBody(pts[2])) b = 1.0;
 	    if (isRigidBody(pts[3])) b = 0.0;
 	}
-	else if (vn * dt < 0.1 * dist)
+	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
 	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
-	m_impulse = fabs(m_impulse);
 
 //uncomment the following for the debugging purpose
-/*if (fabs(m_impulse) > 0){
+if (fabs(m_impulse) > 0){
 	printf("real EdgeToEdge collision\n");
 	printf("vt = %f, vn = %f, dist = %f\n",vt,vn,dist);
 	printf("v_rel = %f %f %f\n",v_rel[0],v_rel[1],v_rel[2]);
@@ -1050,7 +1048,6 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	}
 	printf("\n");
 }
-*/
 
 	/* it is supposed to modify the average velocity*/
 	for (int j = 0; j < 3; ++j)

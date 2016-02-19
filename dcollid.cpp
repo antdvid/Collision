@@ -451,7 +451,7 @@ void CollisionSolver::updateFinalVelocity()
 		if (!sl->has_collsn) 
 		    continue;
                 for (int j = 0; j < 3; ++j){
-                    pt->vel[j] = sl->avgVel[j]-sl->impulse[j];
+                    pt->vel[j] = sl->avgVel[j];
                     sl->vel[j] = sl->avgVel[j];
 		    if (isnan(pt->vel[j]))
 			printf("nan vel and avgVel\n");
