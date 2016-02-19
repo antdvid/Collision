@@ -952,11 +952,11 @@ if (fabs(m_impulse) > 0.0){
 	     if(isRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 
-	for (int i = 0; i < 4; ++i){
+	/*for (int i = 0; i < 4; ++i){
 	    printf("pt[%d], collsnImp = [%f %f %f], friction = [%f %f %f]\n",
 	i, sl[i]->collsnImpulse[0],sl[i]->collsnImpulse[1],sl[i]->collsnImpulse[2],
 	sl[i]->friction[0],sl[i]->friction[1],sl[i]->friction[2]);
-	}
+	}*/
 
 	for (int kk = 0; kk < 4; kk++)
 	for (int j = 0; j < 3; ++j){
