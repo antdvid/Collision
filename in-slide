@@ -22,4 +22,4 @@ Enter problem type: CurveToPlane
 Enter yes for debugging: yes
 Enter the debugging string: collision
 Enter the debugging string: tCLOCK 
-Enter the debugging string: CollisionImpulse 
+Enter the debugging string: tCollisionImpulse 
