@@ -1,161 +1,143 @@
 #include <FronTier.h>
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <unordered_map>
 #include "collid.h"
-static void initBalls(Front&);
-static void initPlane(Front&);
-static void initString(Front&);
-static void initMultipleStrings(Front&);
-static void initCurveToPlane(Front&);
 static CURVE* make3dCurve(Front&,double[][3],int);
+static void initSurface(Front&,char*);
+static void initCurves(Front&,char*); 
 
-void initTestModule(Front &front, char* in_name)
+void initTestModule(Front &front, char* inName)
 {
-        FILE* infile = fopen(in_name,"r");
-        char mesg[100];
-        CursorAfterString(infile,"Enter problem type: ");
-        fscanf(infile,"%s",mesg);
-        (void) printf("%s\n",mesg);
-        if      (mesg[0] == 'B')
-            initBalls(front);
-        else if (mesg[0] == 'P')
-	    initPlane(front);
-	else if (mesg[0] == 'S')
-	    initString(front);
-	else if (mesg[0] == 'M')
-	    initMultipleStrings(front);
-	else if (strcmp(mesg,"CurveToPlane") == 0)
-	    initCurveToPlane(front);
-	else
-        {
-            std::cout << "Unknown problem type: " << mesg << std::endl;
-            clean_up(ERROR);
-        }
+	initSurface(front,inName);
+	initCurves(front,inName);
 	gview_plot_interface("init",front.interf);
 }
 
-static void initBalls(Front& front)
-{
-        double center[MAXD];        // Center of the sphere
-        double R[MAXD];
-        SURFACE* surf;
-        center[0] = center[1] = center[2] = 0.30;
-            R[0] = R[1] = R[2] = 0.05;
-        FT_MakeEllipticSurf(&front,center,R,
+std::unordered_map<std::string,int> hashMap({
+	{"FIRST_PHYSICS_WAVE_TYPE",FIRST_PHYSICS_WAVE_TYPE},
+	{"MOVABLE_BODY_BOUNDARY",MOVABLE_BODY_BOUNDARY},
+	{"NEUMANN_BOUNDARY",NEUMANN_BOUNDARY},
+	{"DIRICHLET_BOUNDARY",DIRICHLET_BOUNDARY},
+	{"STRING_HSBDRY",STRING_HSBDRY}});
+
+static void initSurface(Front &front,char* inName) {
+	SURFACE *surf;
+	std::ifstream fileStream(inName);
+	std::string str, objName;
+	int count = 0;
+	while (!fileStream.eof()) {
+	    getline(fileStream,str);
+	    if (str.find("Sphere") != std::string::npos) {
+		std::stringstream ss(str);
+		double center[3], vel[3], radius[3];
+		std::string wave_type;
+		ss >> objName;
+		std::cout << "#"<<count++<<" "<<objName << std::endl;
+		for (int i = 0; i < 3; ++i)
+		    ss >> center[i];
+		std::cout << "    Center: "<< center[0] <<" " << center[1] 
+			  << " " << center[2]<< std::endl;
+
+		for (int i = 0; i < 3; ++i)
+		    ss >> radius[i];
+		std::cout << "    Radius: "<< radius[0]<<" "<<radius[1]
+			  <<" "<<radius[2]<<std::endl;
+
+		for (int i = 0; i < 3; ++i) 
+		    ss >> vel[i];
+		std::cout << "    Vel: "<< vel[0] << " " << vel[1] 
+			  << " " << vel[2] << std::endl;
+
+		ss >> wave_type;
+		if (hashMap.find(wave_type) == hashMap.end())
+		    std::cout << "Unknown supported type: "<<wave_type<<std::endl;
+		std::cout << "    Wave type: " << wave_type << std::endl; 
+		FT_MakeEllipticSurf(&front,center,radius,
                         1,2,    // negative and positive components
-                        FIRST_PHYSICS_WAVE_TYPE,
+                        hashMap[wave_type],
                         1,      // refinement level
                         &surf);
+	        initSurfaceState(surf,vel);
+	    }
+	    if (str.find("Cuboid") != std::string::npos) {
+		std::stringstream ss(str);
+                double center[3], vel[3], edge[3];
+                std::string wave_type;
+                ss >> objName;
+                std::cout << "#"<<count++<<" "<<objName << std::endl;
+                for (int i = 0; i < 3; ++i)
+                    ss >> center[i];
+                std::cout << "    Center: "<< center[0] <<" " << center[1] << " " 
+			  << center[2]<< std::endl;
 
-        const double vel1[] = {-0.2,-0.2,-0.2};
-        //initialize velocity function to straight_velocity
-        initSurfaceState(surf,vel1);
+                for (int i = 0; i < 3; ++i)
+                    ss >> edge[i];
+                std::cout << "    Edge: "<< edge[0]<<" "<<edge[1]<<" "
+			  << edge[2]<< std::endl;
 
-        center[0] = center[1] = center[2] = 0.20;
-            R[0] = R[1] = R[2] = 0.05;
-        FT_MakeEllipticSurf(&front,center,R,
-                        1,2,    // negative and positive components
-                        FIRST_PHYSICS_WAVE_TYPE,
-                        1,      // refinement level
-                        &surf);
+                for (int i = 0; i < 3; ++i)
+                    ss >> vel[i];
+                std::cout << "    Vel: "<< vel[0] << " " << vel[1] << " " << vel[2]
+                << std::endl;
 
-        const double vel2[] = {0.2,0.2,0.2};
-        initSurfaceState(surf,vel2);
-}
-
-static void initPlane(Front& front)
-{
-        double center[MAXD];        // Center of the sphere
-        double R[MAXD];
-        SURFACE* surf;
-	
-	center[0] = center[1] = 0.25;
-	center[2] = 0.47;
-	double edge[MAXD];
-	edge[0] = edge[1] = 0.15;
-	edge[2] = 0.01;
-	FT_MakeCuboidSurf(&front,center,edge,1,2,
-			FIRST_PHYSICS_WAVE_TYPE,
-			1,
-			&surf);
-
-        const double vel1[] = {0,0,-0.2};
-        //initialize velocity function to straight_velocity
-        initSurfaceState(surf,vel1);
-
-        center[0] = center[1] = 0.25;
-	center[2] = 0.4;
-            R[0] = R[1] = R[2] = 0.05;
-        FT_MakeEllipticSurf(&front,center,R,
-                        1,2,    // negative and positive components
-                        MOVABLE_BODY_BOUNDARY,
-                        1,      // refinement level
-                        &surf);
-
-        const double vel2[] = {0,0,0.2};
-        initSurfaceState(surf,vel2);
-
-}
-
-static void initString(Front& front){
-	double center[MAXD];        // Center of the sphere
-        SURFACE* surf;
-
-	//make a cuboid
-	center[0] = center[1] = 0.25;
-        center[2] = 0.3;
-        double edge[MAXD];
-        edge[0] = edge[1] = 0.15;
-        edge[2] = 0.03;
-	FT_MakeCuboidSurf(&front,center,edge,1,2,
-                        FIRST_PHYSICS_WAVE_TYPE,
+                ss >> wave_type;
+                if (hashMap.find(wave_type) == hashMap.end())
+                    std::cout << "Unknown supported type: "<<wave_type<<std::endl;
+                std::cout << "    Wave type: " << wave_type << std::endl; 
+		FT_MakeCuboidSurf(&front,center,edge,1,2,
+                        hashMap[wave_type],
                         1,
-                        &surf);	
-	const double vel1[] = {0,0,-0.2};
-        //initialize velocity function to straight_velocity
-        initSurfaceState(surf,vel1);
-
-	//make a string
-	double pt[2][3] = {{0.25,0.01,0.25},{0.25,0.49,0.25}};
-	make3dCurve(front,pt,STRING_HSBDRY);
+                        &surf);
+	        initSurfaceState(surf,vel);
+	    }
+	}
+	fileStream.close();
 }
 
-static void initCurveToPlane(Front& front){
-	double center[MAXD];
-        SURFACE* surf;
+static void initCurves(Front &front,char* inName) {
+	CURVE* curve;
+	std::ifstream fileStream(inName);
+        std::string str;
+        int count = 0;
+        while (!fileStream.eof()) {
+            getline(fileStream,str);
+            if (str.find("Curve") != std::string::npos) {
+                std::stringstream ss(str);
+		std::string objName, hsbdry_type;
+		double endPoint[2][3], vel[3];
+		ss >> objName;
+		std::cout <<"#"<< count++ << " " << objName <<std::endl;
 
-	//make a cuboid
-	center[0] = center[1] = 0.25;
-        center[2] = 0.13;
-        double edge[MAXD];
-        edge[0] = edge[1] = 0.2;
-        edge[2] = 0.02;
-	FT_MakeCuboidSurf(&front,center,edge,1,2,
-                        MOVABLE_BODY_BOUNDARY,
-                        1,
-                        &surf);	
-	const double vel1[] = {0.0,0.0,0.0};
-        //initialize velocity function to straight_velocity
-        initSurfaceState(surf,vel1);
+		for (int i = 0; i < 3; ++i)
+		    ss >> endPoint[0][i];
+		std::cout << "    Start: "<<endPoint[0][0]<<" "<<endPoint[0][1]<<" "
+			  <<endPoint[0][2] << std::endl;
+		
+		for (int i = 0; i < 3; ++i)
+		    ss >> endPoint[1][i];
+		std::cout << "    End: "<< endPoint[1][0] << " " << endPoint[1][1] << " "
+			  << endPoint[1][2] << std::endl;
 
-	//make a string
-	//string end should higher than cuboid: center[2]+edge[2]
-	double pt[2][3] = {{0.25,0.1,0.3},{0.25,0.25,0.152}};
-	CURVE     *curve = make3dCurve(front,pt,STRING_HSBDRY);
-	const double vel2[] = {0.0,0.1,-0.1};
-	initCurveState(curve,vel2);
-}
-
-static void initMultipleStrings(Front& front){
-	CURVE *curve;
-	//make a string
-        double pt1[2][3] = {{0.25,0.01,0.24},{0.25,0.49,0.24}};
-	const double vel1[] = {0,0,0.2};
-        curve = make3dCurve(front,pt1,STRING_HSBDRY);
-	initCurveState(curve,vel1);
-	//make a string
-        double pt2[2][3] = {{0.01,0.25,0.25},{0.49,0.25,0.25}};
-	const double vel2[] = {0,0,-0.2};
-        curve = make3dCurve(front,pt2,STRING_HSBDRY);
-	initCurveState(curve,vel2);
+		for (int i = 0; i < 3; ++i)
+		    ss >> vel[i];
+		std::cout << "    Vel: " << vel[0] << " " << vel[1] << " "
+			  << vel[2]<< std::endl;
+		
+		ss >> hsbdry_type;
+		std::cout << "    Wave type: " << hsbdry_type << std::endl;
+		if (hashMap.find(hsbdry_type) == hashMap.end())
+		    std::cout << "Unknown hypersurface boundary type" << std::endl;
+		else
+		{
+		    curve = make3dCurve(front,endPoint,hashMap[hsbdry_type]);
+        	    initCurveState(curve,vel);
+		}
+	    }
+	    
+	}
+	fileStream.close();
 }
 
 static CURVE* make3dCurve(Front& front,double pt[][3],int hsb_type){
@@ -197,6 +179,7 @@ void initSurfaceState(
         TRI* tri;
         POINT* p;
         STATE* sl, *sr;
+	if (!surf) return; 
         surf_tri_loop(surf,tri)
         {
             for (int i = 0; i < 3; ++i)
@@ -224,6 +207,7 @@ void initCurveState(CURVE* curve, const double* vel)
 	BOND* b;
 	STATE* sl;
 	POINT* p[2];
+	if (!curve) return;
 	curve_bond_loop(curve,b)
 	{
 	    p[0] = b->start;

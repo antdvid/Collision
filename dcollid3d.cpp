@@ -42,6 +42,8 @@ void CollisionSolver3d::assembleFromInterface(
 		n_bond++;
 	    }
 	}
+	setDomainBoundary(intfc->table->rect_grid.L,
+			  intfc->table->rect_grid.U);
 	if (debugging("collision")){
 	    printf("%d num of tris, %d num of bonds\n",n_tri,n_bond);
 	    printf("%lu number of elements is assembled\n",hseList.size());
@@ -715,7 +717,6 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
             	    nor[j]  = (1.0-b) * sl[2]->x_old[j] + b * sl[3]->x_old[j];
             	    nor[j] -= (1.0-a) * sl[0]->x_old[j] + a * sl[1]->x_old[j];
         	}
-		//printf("intersect!!!\n");
 	    }
 	    dist = distBetweenCoords(v1,v2);
 	}
@@ -724,7 +725,7 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	nor_mag = Mag3d(nor);
 	if (nor_mag < MACH_EPS)
 	{
-	    std::cout << "nan nor vector" << std::endl;
+	    std::cout << "NaN normal vector" << std::endl;
 	    clean_up(ERROR);
 	}
 	else
@@ -927,8 +928,8 @@ if (fabs(m_impulse) > 0.0){
 	printf("k = %f, m = %f\n",k,m);
 	printf("x_old:\n");
 	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	    STATE* sl1 = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl1->x_old[0],sl1->x_old[1],sl1->x_old[2]);
 	}
 	printf("x_new:\n");
 	for (int i = 0; i < 4; ++i){
@@ -936,10 +937,9 @@ if (fabs(m_impulse) > 0.0){
 	}
 	printf("avgVel:\n");
 	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	    STATE* sl1 = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl1->avgVel[0],sl1->avgVel[1],sl1->avgVel[2]);
 	}
-	printf("root = %e,h = %f\n\n",root,h);
 }
 	for (int i = 0; i < 3; ++i)
 	{
@@ -1049,8 +1049,8 @@ if (fabs(m_impulse) > 0){
 	printf("root = %e,h = %e, dt = %e\n",root,h,dt);
 	printf("x_old:\n");
 	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
+	    STATE* sl1 = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl1->x_old[0],sl1->x_old[1],sl1->x_old[2]);
 	}
 	printf("x_new:\n");
 	for (int i = 0; i < 4; ++i){
@@ -1058,8 +1058,8 @@ if (fabs(m_impulse) > 0){
 	}
 	printf("avgVel:\n");
 	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    printf("%f %f %f\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
+	    STATE* sl1 = (STATE*)left_state(pts[i]);
+	    printf("%f %f %f\n",sl1->avgVel[0],sl1->avgVel[1],sl1->avgVel[2]);
 	}
 	printf("\n");
 }

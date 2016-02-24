@@ -101,6 +101,52 @@ void CollisionSolver::recordOriginPosition(){
 	stop_clock("recordOriginPosition");
 }
 
+void CollisionSolver::setDomainBoundary(double* L, double* U) {
+	for (int i = 0; i < m_dim; ++i) {
+	    Boundary[i][0] = L[i];
+	    Boundary[i][1] = U[i];
+	}
+}
+
+void CollisionSolver::detectDomainBoundaryCollision() {
+	std::cout << "Enter detectDomainBoundaryCollision\n" << std::endl;
+	double dt = getTimeStepSize();
+	printf("Domain boundary = [%f %f, %f %f, %f %f]\n",
+		getDomainBoundary(0,0),getDomainBoundary(0,1),
+		getDomainBoundary(1,0),getDomainBoundary(1,1),
+		getDomainBoundary(2,0),getDomainBoundary(2,1));
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+                it < hseList.end(); ++it) {
+	    for (int i = 0; i < (*it)->num_pts(); ++i) {
+		POINT* pt = (*it)->Point_of_hse(i);
+                STATE* sl = (STATE*)left_state(pt);
+		double cand_coords[3]; //candidate position
+		//try to modify the average velocity 
+		//according to the new candidate position
+		for (int j = 0; j < m_dim; ++j) {
+		    cand_coords[j] = sl->x_old[j] + dt*sl->avgVel[j];
+		    double L, U;
+		    L = getDomainBoundary(j,0);
+		    U = getDomainBoundary(j,1);
+		    if (cand_coords[j] <= L) 
+		    {
+			sl->has_collsn = true;
+			cand_coords[j] = L + s_thickness;
+		    	sl->avgVel[j] = 0.0;
+		        Coords(pt)[j] = cand_coords[j];
+		    }
+		    else if (cand_coords[j] >= U)
+		    {
+			sl->has_collsn = true;
+			cand_coords[j] = U - s_thickness;
+		    	sl->avgVel[j] = 0.0;
+		        Coords(pt)[j] = cand_coords[j];
+		    }
+		}
+	    }
+	}
+}
+
 void CollisionSolver::computeAverageVelocity(){
 	POINT* pt;
         STATE* sl; 
@@ -232,7 +278,7 @@ void CollisionSolver::setTraitsDimension(){
 void CollisionSolver::resolveCollision()
 {
 	//catch floating point exception: nan/inf
-//	feenableexcept(FE_INVALID | FE_OVERFLOW);
+	feenableexcept(FE_INVALID | FE_OVERFLOW);
 
 	setTraitsDimension();
 
@@ -259,6 +305,10 @@ void CollisionSolver::resolveCollision()
 	if (debugging("collision"))
 	    printDebugVariable();
 	
+	start_clock("detectDomainBoundaryCollision");
+	detectDomainBoundaryCollision();
+	stop_clock("detectDomainBoundaryCollision");
+
 	start_clock("updateFinalPosition");
 	//update position using average velocity
 	updateFinalPosition();
@@ -316,11 +366,7 @@ void CollisionSolver::detectCollision()
 extern void createImpZone(POINT* pts[], int num = 4){
 	for (int i = 0; i < num; ++i)
 	for (int j = 0; j < i; ++j)
-	{
-	    /*if (isRigidBody(pts[i]) || isRigidBody(pts[j]))
-		continue;*/
 	    mergePoint(pts[i],pts[j]); 
-	}
 }
 
 bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
@@ -418,6 +464,9 @@ void CollisionSolver::updateFinalPosition()
 		    if (isnan(Coords(pt)[j]))
 			printf("nan coords, x_old = %f, avgVel = %f\n",
 				sl->x_old[j],sl->avgVel[j]);
+		    if (Coords(pt)[j] > getDomainBoundary(j,1) ||
+			Coords(pt)[j] < getDomainBoundary(j,0))
+			std::cout<<"Warning: point is out of domain"<<std::endl;
 		}
 	    }
 	}

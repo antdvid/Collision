@@ -5,10 +5,12 @@ The fabric surface is modeled with triangle mesh and its interior dynmaics is si
 For convenience, the data structure SURFACE, TRI, POINT are from FronTier library (a computational fluid dynamic library with interface tracking capability from Stony Brook University). However, people can define their own 
 data structure as long as the SURFACE has a link list for triangles, TRI has pointers to three POINTs and POINT has coordinates(x,y,z).
 ##Numerical Test
-The basic idea of the implementation is originated from the paper "Robust Treatment of Collisions, Contact and Fricition for Cloth Animation", but we modify the method to couple it with FronTier easily. A few numerical test are shown below:
+The basic idea of the implementation is originated from the paper "Robust Treatment of Collisions, Contact and Fricition for Cloth Animation", but we modify the method to couple it with FronTier easily. If finding some bugs, please first use the included test cases to verify your modification before commit. A few numerical examples are shown below:
 <img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-sphere.gif" width="230">
 <img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-body.gif" width="230">
 <img style="float: left;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fall-box.gif" width="230">
 <img style="float: center;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/string_front.gif" width="230">
 <img style="float: center;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/string_rear.gif" width="230">
+<img style="float: center;" src="http://guest.ams.sunysb.edu/~zgao/work/collision/img/fallstring.gif" width="230">
+
 

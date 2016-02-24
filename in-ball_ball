@@ -10,14 +10,16 @@ Lower boundary in 2-th dimension: DIRICHLET_BOUNDARY
 Upper boundary in 2-th dimension: DIRICHLET_BOUNDARY
 
 Max time: 1.0 
-Max step: 200
+Max step: 200 
 Print interval: 0.01
 Movie frame interval: 0.01
 CFL factor: 0.75
 Redistribution interval: 10000000
 Type yes to turn off auto-redistribution: y
 
-Enter problem type: MultipleString 
+Initialize spheres:(center[3], radius[3], vel[3], wave type)
+Sphere: 0.3 0.3 0.3 0.05 0.05 0.05 -0.2 -0.2 -0.2 FIRST_PHYSICS_WAVE_TYPE
+Sphere: 0.2 0.2 0.2 0.05 0.05 0.05 0.2 0.2 0.2 FIRST_PHYSICS_WAVE_TYPE
 
 Enter yes for debugging: yes
 Enter the debugging string: collision

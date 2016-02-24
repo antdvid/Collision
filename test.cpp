@@ -8,6 +8,7 @@ char *in_name,*restart_state_name,*restart_name,*out_name;
 boolean RestartRun;
 int RestartStep;
 static void propagation_driver(Front*);
+static void dummySpringSolver(Front*);
 static void collision_point_propagate(Front*,POINTER,POINT*,
         			      POINT *newp,HYPER_SURF_ELEMENT *,
         			      HYPER_SURF*,double,double*);
@@ -59,10 +60,6 @@ static  void propagation_driver(
 {
         double CFL;
 	CollisionSolver *collision_solver = new CollisionSolver3d();
-        /*front->max_time = 5;
-        front->max_step = 50;
-        front->print_time_interval = 0.5;
-        front->movie_frame_interval = 0.01;*/
 
         CFL = Time_step_factor(front);
 	Tracking_algorithm(front) = STRUCTURE_TRACKING;
@@ -103,6 +100,7 @@ static  void propagation_driver(
 
             FT_Propagate(front);
 
+	    dummySpringSolver(front);
 	    //collision detect and handling
 	    collision_solver->assembleFromInterface(front->interf,front->dt);
 	    collision_solver->setFrictionConstant(0.0);
@@ -216,7 +214,7 @@ static void collision_point_propagate(
 	for (i = 0; i < dim; ++i)
 	{
 	    newsl->vel[i] = vel[i];
-            Coords(newp)[i] = Coords(oldp)[i] + dt*vel[i];
+            Coords(newp)[i] = Coords(oldp)[i];
 	    newsl->collsnImpulse[i] = 0.0;
 	    newsl->x_old[i] = Coords(oldp)[i];
 	}
@@ -224,3 +222,37 @@ static void collision_point_propagate(
         s = mag_vector(V,dim);
         set_max_front_speed(dim,s,NULL,Coords(newp),front);
 }       /* fourth_order_point_propagate */
+
+static void dummySpringSolver(Front* front) {
+	INTERFACE *intfc = front->interf;
+	POINT *p;
+	HYPER_SURF              *hs;
+        HYPER_SURF_ELEMENT      *hse;
+	(void) next_point(intfc,NULL,NULL,NULL);
+	while (next_point(intfc,&p,&hse,&hs)) 
+        {
+            if(Boundary_point(p))
+                continue;
+	    STATE* sl = (STATE*)left_state(p);
+	    for (int i = 0; i < FT_Dimension(); ++i)
+	    	Coords(p)[i] = sl->x_old[i] + front->dt*(sl->vel[i]);
+        }
+	CURVE**c;
+	BOND* bond;
+	intfc_curve_loop(intfc,c) {
+	    for ((bond) = (*c)->first; (bond) != (*c)->last; 
+		 (bond) = (bond)->next){
+		p = bond->end;
+		STATE* sl = (STATE*)left_state(p);
+		for (int i = 0; i < FT_Dimension(); ++i)	
+		    Coords(p)[i] = sl->x_old[i] + front->dt*(sl->vel[i]);
+	    }
+	}
+	NODE** n;
+	intfc_node_loop(intfc,n) {
+	     p = (*n)->posn;
+	     STATE* sl = (STATE*)left_state(p);
+                for (int i = 0; i < FT_Dimension(); ++i)
+                    Coords(p)[i] = sl->x_old[i] + front->dt*(sl->vel[i]);
+	}
+}

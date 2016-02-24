@@ -126,6 +126,7 @@ private:
 	static double s_m;
 	static double s_k;
 	static double s_lambda;
+	double Boundary[3][2]; //domain boundary[dir][side]
 	static void turnOffImpZone();
 	static void turnOnImpZone();
 	bool reduceSuperelastOnce(int&);
@@ -139,6 +140,7 @@ private:
 	void setTraitsDimension();
 	void detectProximity();
 	void detectCollision();
+	void detectDomainBoundaryCollision();
 
 	virtual void updateImpactListVelocity(POINT*) = 0;
 	virtual bool BondToBond(const BOND*,const BOND*,double) = 0;
@@ -176,6 +178,8 @@ public:
 	bool isCollision(const CD_HSE*,const CD_HSE*);
 	void resolveCollision();
 	void recordOriginPosition();	
+	void setDomainBoundary(double* L,double *U);
+	double getDomainBoundary(int dir,int side) {return Boundary[dir][side];}
 
 	//for debugging
 	static void printDebugVariable();
