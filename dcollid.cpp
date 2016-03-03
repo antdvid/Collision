@@ -109,12 +109,8 @@ void CollisionSolver::setDomainBoundary(double* L, double* U) {
 }
 
 void CollisionSolver::detectDomainBoundaryCollision() {
-	std::cout << "Enter detectDomainBoundaryCollision\n" << std::endl;
 	double dt = getTimeStepSize();
-	printf("Domain boundary = [%f %f, %f %f, %f %f]\n",
-		getDomainBoundary(0,0),getDomainBoundary(0,1),
-		getDomainBoundary(1,0),getDomainBoundary(1,1),
-		getDomainBoundary(2,0),getDomainBoundary(2,1));
+	double mu = getFrictionConstant();
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
                 it < hseList.end(); ++it) {
 	    for (int i = 0; i < (*it)->num_pts(); ++i) {
@@ -123,6 +119,7 @@ void CollisionSolver::detectDomainBoundaryCollision() {
 		double cand_coords[3]; //candidate position
 		//try to modify the average velocity 
 		//according to the new candidate position
+		double dv = 0;
 		for (int j = 0; j < m_dim; ++j) {
 		    cand_coords[j] = sl->x_old[j] + dt*sl->avgVel[j];
 		    double L, U;
@@ -132,6 +129,7 @@ void CollisionSolver::detectDomainBoundaryCollision() {
 		    {
 			sl->has_collsn = true;
 			cand_coords[j] = L + s_thickness;
+			dv = fabs(sl->avgVel[j]);
 		    	sl->avgVel[j] = 0.0;
 		        Coords(pt)[j] = cand_coords[j];
 		    }
@@ -139,10 +137,16 @@ void CollisionSolver::detectDomainBoundaryCollision() {
 		    {
 			sl->has_collsn = true;
 			cand_coords[j] = U - s_thickness;
+			dv = fabs(sl->avgVel[j]);
 		    	sl->avgVel[j] = 0.0;
 		        Coords(pt)[j] = cand_coords[j];
 		    }
 		}
+		//reduce tangential velocity with friction
+		double preVt = Mag3d(sl->avgVel);
+		if (preVt > MACH_EPS)
+		for (int j = 0; j < m_dim; ++j) 
+		    sl->avgVel[j] *= std::max(1.0-mu*dv/preVt,0.0); 
 	    }
 	}
 }
@@ -480,6 +484,7 @@ void CollisionSolver::reduceSuperelast()
 	while(has_superelas && niter++ < max_iter){
 	    has_superelas = reduceSuperelastOnce(num_edges);
 	}
+	if (debugging("collision"))
 	printf("    %d edges are over strain limit after %d iterations\n",num_edges,niter);
 }
 
@@ -539,11 +544,6 @@ void CollisionSolver::updateAverageVelocity()
 		if (isRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
-	/*	printf("before: avgVel = [%f %f %f]\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
-		printf("p = %p, collision_num = %d\n",(void*)p,sl->collsn_num);
-		printf("x_old = %f %f %f\n",sl->x_old[0],sl->x_old[1],sl->x_old[2]);
-		printf("Impulse = %f %f %f\n",sl->collsnImpulse[0],sl->collsnImpulse[1],sl->collsnImpulse[2]);
-	*/
 		if (sl->collsn_num > 0)
 		{
 		    sl->has_collsn = true;
@@ -563,7 +563,6 @@ void CollisionSolver::updateAverageVelocity()
 		    sl->collsn_num = 0;
 		}
 
-		//printf("after: avgVel = [%f %f %f]\n\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 		if (debugging("collision")){
 		    //debugging: print largest speed
 		    double speed = Mag3d(sl->avgVel);
