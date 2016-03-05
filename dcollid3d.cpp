@@ -706,17 +706,28 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	    nor_mag = Mag3d(nor);
 	    if (nor_mag < MACH_EPS)
 	    {
-	        //v1 == v2; 
-	        //two edges intersect with each other
-	        //normal direction is calculated with old position 
-		STATE* sl[4];
-		for (int i = 0; i < 4; ++i)
-		    sl[i] = (STATE*)left_state(pts[i]);
-        	for (int j = 0; j < 3; ++j)
-        	{
-            	    nor[j]  = (1.0-b) * sl[2]->x_old[j] + b * sl[3]->x_old[j];
-            	    nor[j] -= (1.0-a) * sl[0]->x_old[j] + a * sl[1]->x_old[j];
-        	}
+		//v1 == v2;
+                //two edges intersect with each other
+                //move back until two edges are untangled
+                STATE* sl[4];
+                const int MAX_ITER = 10;
+                double dt = CollisionSolver::getTimeStepSize();
+                int num_iter = 0;
+                double x_cand[4][3];
+                while (Mag3d(nor) < MACH_EPS && num_iter < MAX_ITER)
+                {
+                    for (int i = 0; i < 4; ++i){
+                        sl[i] = (STATE*)left_state(pts[i]);
+                        for (int j = 0; j < 3; ++j)
+                            x_cand[i][j] = Coords(pts[i])[j]
+                                        - (++num_iter)*dt*sl[i]->avgVel[j];
+                    }
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        nor[j]  = (1.0-b) * x_cand[2][j] + b * x_cand[3][j];
+                        nor[j] -= (1.0-a) * x_cand[0][j] + a * x_cand[1][j];
+                    }
+                }
 	    }
 	    dist = distBetweenCoords(v1,v2);
 	}
@@ -725,8 +736,23 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	nor_mag = Mag3d(nor);
 	if (nor_mag < MACH_EPS)
 	{
-	    std::cout << "NaN normal vector" << std::endl;
-	    clean_up(ERROR);
+            printf("Normal vector is nan");
+            printf("a = %f, b = %f\n",a,b);
+            printf("x_old:\n");
+            for (int i = 0; i < 4; ++i){
+                STATE* sl1 = (STATE*)left_state(pts[i]);
+                printf("%f %f %f\n",sl1->x_old[0],sl1->x_old[1],sl1->x_old[2]);
+            }
+            printf("x_new:\n");
+            for (int i = 0; i < 4; ++i){
+                printf("%f %f %f\n",Coords(pts[i])[0],Coords(pts[i])[1],Coords(pts[i])[2]);
+            }
+            printf("avgVel:\n");
+            for (int i = 0; i < 4; ++i){
+                STATE* sl1 = (STATE*)left_state(pts[i]);
+                printf("%f %f %f\n",sl1->avgVel[0],sl1->avgVel[1],sl1->avgVel[2]);
+            }
+            clean_up(ERROR);
 	}
 	else
 	for (int i = 0; i < 3; ++i)
