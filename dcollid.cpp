@@ -468,9 +468,6 @@ void CollisionSolver::updateFinalPosition()
 		    if (isnan(Coords(pt)[j]))
 			printf("nan coords, x_old = %f, avgVel = %f\n",
 				sl->x_old[j],sl->avgVel[j]);
-		    if (Coords(pt)[j] > getDomainBoundary(j,1) ||
-			Coords(pt)[j] < getDomainBoundary(j,0))
-			std::cout<<"Warning: point is out of domain"<<std::endl;
 		}
 	    }
 	}

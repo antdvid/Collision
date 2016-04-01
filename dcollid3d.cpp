@@ -34,8 +34,7 @@ void CollisionSolver3d::assembleFromInterface(
 	}
 	intfc_curve_loop(intfc,c)
 	{
-	    if (hsbdry_type(*c) == SUBDOMAIN_HSBDRY) continue; 
-	    if (hsbdry_type(*c) == MONO_COMP_HSBDRY) continue;
+	    if (hsbdry_type(*c) != STRING_HSBDRY) continue; 
 	    curve_bond_loop(*c,b)
 	    {
 		hseList.push_back(new CD_BOND(b,m_dim));
