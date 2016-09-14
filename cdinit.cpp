@@ -194,9 +194,12 @@ void initSurfaceState(
                     sl->friction[j] = sr->friction[j] = 0.0;
                     sl->collsn_num = sr->collsn_num = 0;
                     sl->x_old[j] = Coords(p)[j];
-		    if (wave_type(p->hs) == MOVABLE_BODY_BOUNDARY ||
-		        wave_type(p->hs) == NEUMANN_BOUNDARY)
+		    sl->is_fixed = false;
+		    sl->is_movableRG = false;
+		    if (wave_type(p->hs) == NEUMANN_BOUNDARY)
 			sl->is_fixed = true;
+		    if (wave_type(p->hs) == MOVABLE_BODY_BOUNDARY)
+			sl->is_movableRG = true;
                 }
             }
         }

@@ -34,7 +34,7 @@ void CollisionSolver3d::assembleFromInterface(
 	}
 	intfc_curve_loop(intfc,c)
 	{
-	    if (hsbdry_type(*c) == SUBDOMAIN_HSBDRY) continue; 
+	    if (is_bdry(*c)) continue; 
 	    if (hsbdry_type(*c) == MONO_COMP_HSBDRY) continue;
 	    curve_bond_loop(*c,b)
 	    {
@@ -42,11 +42,29 @@ void CollisionSolver3d::assembleFromInterface(
 		n_bond++;
 	    }
 	}
+	makeSet(hseList);
+	createImpZoneForRG(intfc);
 	setDomainBoundary(intfc->table->rect_grid.L,
 			  intfc->table->rect_grid.U);
 	if (debugging("collision")){
 	    printf("%d num of tris, %d num of bonds\n",n_tri,n_bond);
 	    printf("%lu number of elements is assembled\n",hseList.size());
+	}
+}
+
+void CollisionSolver3d::createImpZoneForRG(const INTERFACE* intfc)
+{	// test function for creating impact zone for each movable RG
+	SURFACE** s;
+	TRI* tri;
+
+	intfc_surface_loop(intfc, s)
+	{
+	    if (is_bdry(*s)) continue;
+	    if (!isMovableRigidBody(Point_of_tri(first_tri(*s))[0])) continue;
+	    surf_tri_loop(*s, tri)
+	    {
+		createImpZone(Point_of_tri(tri), 3, YES);
+	    }
 	}
 }
 
@@ -124,7 +142,7 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 	double dt = getTimeStepSize();
 	p = head;
         while(p){
-	    if (isRigidBody(p)) {
+	    if (isStaticRigidBody(p)) {
 		p = next_pt(p);
 		continue;
 	    }
@@ -757,6 +775,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 	
 	det = Dot3d(x13,x13)*Dot3d(x23,x23)-Dot3d(x13,x23)*Dot3d(x13,x23);
 	if (fabs(det) < ROUND_EPS){
+	    return false; // ignore cases where tri reduces to a line or point
 	    /*consider the case when det = 0*/
 	    /*x13 and x23 are collinear*/
 	    POINT* tmp_pts[3]; 
@@ -799,7 +818,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 		minusVec(Coords(pts[3]),v,nor);
 		dist = Mag3d(nor);
 		//define nor vec if dist == 0
-		if (dist < ROUND_EPS)
+		if (Mag3d(nor) < ROUND_EPS)
 		    nor[0] = nor[1] = nor[2] = 1.0;
 	    }
 	}
@@ -891,16 +910,17 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    vt = 0.0;
 	if (vn < 0)
 	{
-	    if (isRigidBody(pts[3]) ||
-	       (isRigidBody(pts[0]) && isRigidBody(pts[1]) &&
-		isRigidBody(pts[2]))){
+	    // test for moving object
+	    if (isStaticRigidBody(pts[3]) ||
+	       (isStaticRigidBody(pts[0]) && isStaticRigidBody(pts[1]) &&
+		isStaticRigidBody(pts[2]))){
 		impulse = vn;
 	    }
 	    else
 	        impulse = vn * 0.5;
 	    for (int i = 0; i < 3; ++i)
 	    {
-		if (isRigidBody(pts[i]))
+		if (isStaticRigidBody(pts[i]))
 		        w[i] = 0.0;
 		sum_w += w[i];
 	    }
@@ -916,6 +936,7 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    m_impulse = 2.0 * impulse / (1.0 + Dot3d(w, w));
 
 //uncomment the following the debugging purpose
+
 if (debugging("CollisionImpulse"))
 if (fabs(m_impulse) > 0.0){
 	printf("real PointToTri collision, dist = %e\n",dist);
@@ -960,9 +981,8 @@ if (fabs(m_impulse) > 0.0){
 			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	}
 	sl[3]->collsn_num += 1;
-
 	for (int j = 0; j < 4; ++j)
-	     if(isRigidBody(pts[j])) 
+	     if(isStaticRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 
 	if (debugging("CollisionImpulse"))
@@ -1023,15 +1043,16 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	if (vn < 0.0)
 	{
-	    if ((isRigidBody(pts[0]) && isRigidBody(pts[1])) ||
-	    	(isRigidBody(pts[2]) && isRigidBody(pts[3])))
+	    // test for moving objects
+	    if ((isStaticRigidBody(pts[0]) && isStaticRigidBody(pts[1])) ||
+	    	(isStaticRigidBody(pts[2]) && isStaticRigidBody(pts[3])))
 		impulse += vn;
 	    else
 		impulse += vn * 0.5;
-    	    if (isRigidBody(pts[0])) a = 1.0;
-	    if (isRigidBody(pts[1])) a = 0.0;
-	    if (isRigidBody(pts[2])) b = 1.0;
-	    if (isRigidBody(pts[3])) b = 0.0;
+    	    if (isStaticRigidBody(pts[0])) a = 1.0;
+	    if (isStaticRigidBody(pts[1])) a = 0.0;
+	    if (isStaticRigidBody(pts[2])) b = 1.0;
+	    if (isStaticRigidBody(pts[3])) b = 0.0;
 	}
 	if (vn * dt < 0.1 * dist)
 	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
@@ -1093,7 +1114,7 @@ if (fabs(m_impulse) > 0){
 	}
 	for (int j = 0; j < 4; ++j)
 	{
-	     if(isRigidBody(pts[j])) 
+	     if(isStaticRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 	     sl[j]->collsn_num += 1;
 	}
