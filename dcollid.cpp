@@ -95,7 +95,7 @@ void CollisionSolver::recordOriginPosition(){
 		for (int j = 0; j < 3; ++j)
 		    sl->x_old[j] = Coords(pt)[j];
 		sl->has_collsn = false;
-		if (isnan(sl->x_old[0])) std::cout<<"nan_x_old"<<std::endl;
+		if (std::isnan(sl->x_old[0])) std::cout<<"nan_x_old"<<std::endl;
 	    }
 	}
 	stop_clock("recordOriginPosition");
@@ -169,7 +169,7 @@ void CollisionSolver::computeAverageVelocity(){
                         sl->avgVel[j] = (Coords(pt)[j] - sl->x_old[j])/dt;
 		    else
 		        sl->avgVel[j] = 0.0;
-		    if (isnan(sl->avgVel[j]) || isinf(sl->avgVel[j]))
+		    if (std::isnan(sl->avgVel[j]) || std::isinf(sl->avgVel[j]))
 		    {
 			std::cout<<"nan avgVel" << std::endl;
 			printf("dt = %e, x_old = %f, x_new = %f\n",
@@ -345,6 +345,11 @@ void CollisionSolver::detectCollision()
 	int cd_pair = 0;
 
 	std::cout<<"Starting collision handling: "<<std::endl;
+	//record if has an actual collision
+	//this is useful for adpative dt
+	int cd_count = 0;
+	setHasCollision(false);
+	//
 	while(is_collision){
 	    is_collision = false;
 	    start_clock("cgal_collision");
@@ -352,6 +357,9 @@ void CollisionSolver::detectCollision()
 		  hseList.end(),reportCollision(is_collision,cd_pair,this),
 		  traitsForCollision());
 	    stop_clock("cgal_collision");
+	
+	    if (cd_count++ == 0 && is_collision) 
+		setHasCollision(true);
 
 	    updateAverageVelocity();
 	    std::cout<<"    #"<<niter << ": " << cd_pair 
@@ -465,7 +473,7 @@ void CollisionSolver::updateFinalPosition()
 	    	for (int j = 0; j < 3; ++j)
 		{
 		    Coords(pt)[j] = sl->x_old[j]+sl->avgVel[j]*dt;
-		    if (isnan(Coords(pt)[j]))
+		    if (std::isnan(Coords(pt)[j]))
 			printf("nan coords, x_old = %f, avgVel = %f\n",
 				sl->x_old[j],sl->avgVel[j]);
 		}
@@ -504,7 +512,7 @@ void CollisionSolver::updateFinalVelocity()
                 for (int j = 0; j < 3; ++j){
                     pt->vel[j] = sl->avgVel[j];
                     sl->vel[j] = sl->avgVel[j];
-		    if (isnan(pt->vel[j]))
+		    if (std::isnan(pt->vel[j]))
 			printf("nan vel and avgVel\n");
 		}
             }
@@ -547,7 +555,7 @@ void CollisionSolver::updateAverageVelocity()
 		    for (int k = 0; k < 3; ++k)
 		    {
 			sl->avgVel[k] += (sl->collsnImpulse[k] + sl->friction[k])/sl->collsn_num;
-			if (isinf(sl->avgVel[k]) || isnan(sl->avgVel[k])) 
+			if (std::isinf(sl->avgVel[k]) || std::isnan(sl->avgVel[k])) 
 			{
 			    printf("inf/nan vel[%d]: impulse = %f, friction = %f, collsn_num = %d\n",
 				k,sl->collsnImpulse[k],sl->friction[k],sl->collsn_num);
@@ -577,7 +585,7 @@ void CollisionSolver::updateAverageVelocity()
 }
 
 bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
-	const CD_BOND *cd_b1, *cd_b2;
+	//const CD_BOND *cd_b1, *cd_b2;
 	const CD_TRI  *cd_t1, *cd_t2;
 	double h = CollisionSolver3d::getRoundingTolerance();
 	if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) && 
@@ -589,6 +597,7 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
+/*
 	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
 	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
 	{
@@ -615,11 +624,12 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	    std::cout<<"This case has not been implemented"<<std::endl;
 	    clean_up(ERROR);
 	}
+*/
 	return false;
 }
 
 bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
-	const CD_BOND *cd_b1, *cd_b2;
+	//const CD_BOND *cd_b1, *cd_b2;
 	const CD_TRI  *cd_t1, *cd_t2;
 	double h = CollisionSolver3d::getFabricThickness();
 
@@ -632,6 +642,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
+/*
 	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
 	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
 	{
@@ -658,6 +669,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	    std::cout<<"This case has not been implemented"<<std::endl;
 	    clean_up(ERROR);
 	}
+*/
 	return false;
 }
 

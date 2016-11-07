@@ -152,7 +152,7 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 			 + wxR[i];
 		sl = (STATE*)left_state(p);
 		sl->avgVel[i] = (x_new[i] - sl->x_old[i])/dt;
-	    	if (isnan(sl->avgVel[i]))
+	    	if (std::isnan(sl->avgVel[i]))
 		{ 
 			printf("coords[3], vel[3]\n");
 			p = head;
@@ -350,111 +350,117 @@ static bool MovingEdgeToEdge(POINT* pts[],const double h){
 	    return false;
 }
 
+static void isCoplanarHelper(double* s[], double v[][3]) {
+    	v[0][0] = s[0][0];         v[0][1] = s[0][1];         v[0][2] = s[0][2];
+	v[1][0] = s[1][0]-s[0][0]; v[1][1] = s[1][1]-s[0][1]; v[1][2] = s[1][2]-s[0][2];
+	v[2][0] = s[2][0]-s[0][0]; v[2][1] = s[2][1]-s[0][1]; v[2][2] = s[2][2]-s[0][2];
+	v[3][0] = s[3][0]-s[0][0]; v[3][1] = s[3][1]-s[0][1]; v[3][2] = s[3][2]-s[0][2];
+}
 static bool isCoplanar(POINT* pts[], const double dt, double roots[])
 {
 	if (debugging("collision"))
 	    CollisionSolver::is_coplanar++;
 
-	double v[4][3], x[4][3];
-	for (int i = 0; i < 4; ++i){
-	    STATE* sl = (STATE*)left_state(pts[i]);
-	    for (int j = 0; j < 3; ++j){
-	        v[i][j] = sl->avgVel[j];
-		x[i][j] = sl->x_old[j];
-	    }
-	}
-	for (int i = 1; i < 4; ++i){
-	    for (int j = 0; j < 3; ++j){
-		v[i][j] = v[0][j] - v[i][j];
-		x[i][j] = x[0][j] - x[i][j];
-	    }
-	}
+	double v[4][3] = {0}, x[4][3] = {0};
+	double* tmp[4] = {0};
+	//for performance, unrolling the loop
+	tmp[0] = ((STATE*)left_state(pts[0]))->avgVel;
+	tmp[1] = ((STATE*)left_state(pts[1]))->avgVel;
+	tmp[2] = ((STATE*)left_state(pts[2]))->avgVel;
+	tmp[3] = ((STATE*)left_state(pts[3]))->avgVel;
+	isCoplanarHelper(tmp, v);
+
+	tmp[0] = ((STATE*)left_state(pts[0]))->x_old;
+	tmp[1] = ((STATE*)left_state(pts[1]))->x_old;
+	tmp[2] = ((STATE*)left_state(pts[2]))->x_old;
+	tmp[3] = ((STATE*)left_state(pts[3]))->x_old;
+	isCoplanarHelper(tmp, x);
+
 	//get roots "t" of a cubic equation
 	//(x1+tv1)x(x2+tv2)*(x3+tv3) = 0
 	//transform to at^3+bt^2+ct+d = 0
 	double a, b, c, d;
-	a = v[3][2]*(v[1][0]*v[2][1]-v[1][1]*v[2][0])-
-            v[3][1]*(v[1][0]*v[2][2]-v[1][2]*v[2][0])+
-            v[3][0]*(v[1][1]*v[2][2]-v[1][2]*v[2][1]);
-        b = v[3][2]*(v[1][0]*x[2][1]-v[1][1]*x[2][0]-v[2][0]*x[1][1]+v[2][1]*x[1][0])-
-            v[3][1]*(v[1][0]*x[2][2]-v[1][2]*x[2][0]-v[2][0]*x[1][2]+v[2][2]*x[1][0])+
-            v[3][0]*(v[1][1]*x[2][2]-v[1][2]*x[2][1]-v[2][1]*x[1][2]+v[2][2]*x[1][1])+
-            x[3][2]*(v[1][0]*v[2][1]-v[1][1]*v[2][0])-
-            x[3][1]*(v[1][0]*v[2][2]-v[1][2]*v[2][0])+
-            x[3][0]*(v[1][1]*v[2][2]-v[1][2]*v[2][1]);
-        c = x[3][2]*(v[1][0]*x[2][1]-v[1][1]*x[2][0]-v[2][0]*x[1][1]+v[2][1]*x[1][0])-
-            x[3][1]*(v[1][0]*x[2][2]-v[1][2]*x[2][0]-v[2][0]*x[1][2]+v[2][2]*x[1][0])+
-            x[3][0]*(v[1][1]*x[2][2]-v[1][2]*x[2][1]-v[2][1]*x[1][2]+v[2][2]*x[1][1])+
-            v[3][2]*(x[1][0]*x[2][1]-x[1][1]*x[2][0])-
-            v[3][1]*(x[1][0]*x[2][2]-x[1][2]*x[2][0])+
-            v[3][0]*(x[1][1]*x[2][2]-x[1][2]*x[2][1]);
-        d = x[3][2]*(x[1][0]*x[2][1]-x[1][1]*x[2][0])-
-            x[3][1]*(x[1][0]*x[2][2]-x[1][2]*x[2][0])+
-            x[3][0]*(x[1][1]*x[2][2]-x[1][2]*x[2][1]);
+	double vv[3], vx[3], xx[3];
+	vv[0] = v[1][1]*v[2][2]-v[1][2]*v[2][1];
+	vv[1] = v[1][0]*v[2][2]-v[1][2]*v[2][0];
+	vv[2] = v[1][0]*v[2][1]-v[1][1]*v[2][0];
+	
+	vx[0] = v[1][1]*x[2][2]-v[1][2]*x[2][1]-v[2][1]*x[1][2]+v[2][2]*x[1][1];
+	vx[1] = v[1][0]*x[2][2]-v[1][2]*x[2][0]-v[2][0]*x[1][2]+v[2][2]*x[1][0];
+	vx[2] = v[1][0]*x[2][1]-v[1][1]*x[2][0]-v[2][0]*x[1][1]+v[2][1]*x[1][0];
+
+	xx[0] = x[1][1]*x[2][2]-x[1][2]*x[2][1];
+	xx[1] = x[1][0]*x[2][2]-x[1][2]*x[2][0];
+	xx[2] = x[1][0]*x[2][1]-x[1][1]*x[2][0];
+
+	a = v[3][0]*vv[0] - v[3][1]*vv[1] + v[3][2]*vv[2];
+
+	b = x[3][0]*vv[0] - x[3][1]*vv[1] + x[3][2]*vv[2] + 
+	    v[3][0]*vx[0] - v[3][1]*vx[1] + v[3][2]*vx[2];
+
+	c = x[3][0]*vx[0] - x[3][1]*vx[1] + x[3][2]*vx[2] +
+            v[3][0]*xx[0] - v[3][1]*xx[1] + v[3][2]*xx[2];
+
+	d = x[3][0]*xx[0] - x[3][1]*xx[1] + x[3][2]*xx[2]; 
 	//solve equation using method from "Art of Scientific Computing"
 	//transform equation to t^3+at^2+bt+c = 0
 	if (fabs(a) > MACH_EPS){
 	    b /= a; c /= a; d /= a;
 	    a = b; b = c; c = d;
 	    double Q, R, theta;
+	    double Q3, R2;
 	    Q = (a*a-3*b)/9;
 	    R = (2*a*a*a-9*a*b+27*c)/54;
-	    if (R*R < Q*Q*Q){
-		theta = acos(R/sqrt(Q*Q*Q));
-		roots[0] = -2*sqrt(Q)*cos(theta/3)-a/3;
-		roots[1] = -2*sqrt(Q)*cos((theta+2*M_PI)/3)-a/3;
-		roots[2] = -2*sqrt(Q)*cos((theta-2*M_PI)/3)-a/3;	
+	    Q3 = Q*Q*Q;
+	    R2 = R*R;
+	    if (R2 < Q3){
+	        double Qsqrt = sqrt(Q);
+		theta = acos(R/sqrt(Q3));
+		roots[0] = -2*Qsqrt*cos(theta/3)-a/3;
+		roots[1] = -2*Qsqrt*cos((theta+2*M_PI)/3)-a/3;
+		roots[2] = -2*Qsqrt*cos((theta-2*M_PI)/3)-a/3;	
 	    }
 	    else{
 		double A, B;
 		double sgn = (R > 0) ? 1.0 : -1.0;
-		A = -sgn*pow(fabs(R)+sqrt(R*R-Q*Q*Q),1.0/3.0);
+		A = -sgn*pow(fabs(R)+sqrt(R2-Q3),1.0/3.0);
 		B = (fabs(A) < ROUND_EPS) ? 0.0 : Q/A;
 		roots[0] = (A+B)-a/3.0;
 		if (fabs(A-B) < ROUND_EPS)
 		    roots[1] = roots[2] = -0.5*(A+B)-a/3.0; //multiple roots
-		else
-		    roots[1] = roots[2] = -1; //complex roots, discard
 	    }
 	}
 	else{
 		a = b; b = c; c = d;
 	   	double delta = b*b-4.0*a*c;
 	   	if (fabs(a) > ROUND_EPS && delta > 0){
-		    roots[0] = (-b+sqrt(delta))/(2.0*a);
-	    	    roots[1] = (-b-sqrt(delta))/(2.0*a);
-		    roots[2] = -1;
+		    double delta_sqrt = sqrt(delta);
+		    roots[0] = (-b+delta_sqrt)/(2.0*a);
+	    	    roots[1] = (-b-delta_sqrt)/(2.0*a);
 	   	}
 		else if (fabs(a) < ROUND_EPS && fabs(b) > ROUND_EPS)
 		{
 		    roots[0] = -c/b;
-		    roots[1] = roots[2] = -1;
 	        }
-	   	else
-		    roots[0] = roots[1] = roots[2] = -1;//complex roots, discard
 	}
-	//select and sort roots;
+	//elimiate invalid roots;
 	for (int i = 0; i < 3; ++i){
 	        roots[i] = roots[i]-MACH_EPS;
 	    	if (roots[i] < 0 || roots[i] > dt) 
 		    roots[i] = -1;
 	}
-	for (int i = 1; i < 3; ++i)
-	for (int k = i; k > 0 && roots[k] < roots[k-1]; k--)
-		std::swap(roots[k],roots[k-1]);
+	//sort the roots
+	if (roots[0] > roots[1])
+	    std::swap(roots[0], roots[1]);
+	if (roots[0] > roots[2])
+	    std::swap(roots[0], roots[2]);
+	if (roots[1] > roots[2])
+	    std::swap(roots[1], roots[2]);
 
-	for (int i = 0; i < 3; ++i)
-	{
-	    if (isnan(roots[i])){
-		std::cout<<"nan root" <<std::endl;
-		printf("a = %f, b = %f, c = %f, d = %f\n",
-			a,b,c,d);
-		clean_up(ERROR);
-	    }
-	    if (roots[i] > MACH_EPS) 
-		return true;
-	}
-	return false;
+	if (roots[0] > MACH_EPS || roots[1] > MACH_EPS || roots[2] > MACH_EPS)
+	    return true;
+	else
+	    return false;
 }
 
 //helper function to detect proximity between elements 
@@ -638,6 +644,7 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	Cross3d(x21,x43,tmp);
 	if (Mag3d(tmp) < ROUND_EPS)
 	{
+	    return false;
 	    //degenerate cases to parallel line segments
 	    if (Mag3d(x21) > ROUND_EPS || Mag3d(x43) > ROUND_EPS){
 	    	POINT* plist[3];
@@ -781,7 +788,8 @@ static bool PointToTri(POINT** pts, double h, double root)
 	Pts2Vec(pts[3],pts[2],x43);
 	
 	det = Dot3d(x13,x13)*Dot3d(x23,x23)-Dot3d(x13,x23)*Dot3d(x13,x23);
-	if (fabs(det) < ROUND_EPS){
+	if (fabs(det) < 1000*MACH_EPS){
+	    return false;
 	    /*consider the case when det = 0*/
 	    /*x13 and x23 are collinear*/
 	    POINT* tmp_pts[3]; 
@@ -999,8 +1007,8 @@ if (fabs(m_impulse) > 0.0){
 
 	for (int kk = 0; kk < 4; kk++)
 	for (int j = 0; j < 3; ++j){
-	    if (isnan(sl[kk]->collsnImpulse[j]) ||
-		isinf(sl[kk]->collsnImpulse[j])){
+	    if (std::isnan(sl[kk]->collsnImpulse[j]) ||
+		std::isinf(sl[kk]->collsnImpulse[j])){
 		printf("PointToTri: sl[%d]->impl[%d] = nan\n",kk,j);
 		for (int i = 0; i < 4; ++i){
 		printf("points[%d] = %p\n",i,(void*)pts[i]);
@@ -1125,8 +1133,8 @@ if (fabs(m_impulse) > 0){
 
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < 3; ++j){
-	    if (isnan(sl[i]->collsnImpulse[j]) ||
-		isinf(sl[i]->collsnImpulse[j])){
+	    if (std::isnan(sl[i]->collsnImpulse[j]) ||
+		std::isinf(sl[i]->collsnImpulse[j])){
 		printf("EdgeToEdge: sl[%d]->impl[%d] = nan\n",i,j);
 		printf("a b = %f %f, nor = [%f %f %f], dist = %f\n",
 		a,b,nor[0],nor[1],nor[2],dist);

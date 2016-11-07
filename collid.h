@@ -126,6 +126,7 @@ private:
 	static double s_m;
 	static double s_k;
 	static double s_lambda;
+	bool has_collision;
 	double Boundary[3][2]; //domain boundary[dir][side]
 	static void turnOffImpZone();
 	static void turnOnImpZone();
@@ -141,6 +142,7 @@ private:
 	void detectProximity();
 	void detectCollision();
 	void detectDomainBoundaryCollision();
+	void setHasCollision(bool judge) {has_collision = judge;}
 
 	virtual void updateImpactListVelocity(POINT*) = 0;
 	virtual bool BondToBond(const BOND*,const BOND*,double) = 0;
@@ -180,6 +182,7 @@ public:
 	void recordOriginPosition();	
 	void setDomainBoundary(double* L,double *U);
 	double getDomainBoundary(int dir,int side) {return Boundary[dir][side];}
+	bool hasCollision() {return has_collision;}
 
 	//for debugging
 	static void printDebugVariable();
