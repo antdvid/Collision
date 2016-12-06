@@ -191,8 +191,10 @@ void initSurfaceState(
                 {
                     sl->vel[j] = sr->vel[j] = vel[j];
                     sl->collsnImpulse[j] = sr->collsnImpulse[j] = 0.0;
+                    sl->collsnImpulse_RG[j] = sr->collsnImpulse_RG[j] = 0.0;
                     sl->friction[j] = sr->friction[j] = 0.0;
                     sl->collsn_num = sr->collsn_num = 0;
+                    sl->collsn_num_RG = sr->collsn_num_RG = 0;
                     sl->x_old[j] = Coords(p)[j];
 		    sl->is_fixed = false;
 		    sl->is_movableRG = false;
@@ -222,8 +224,10 @@ void initCurveState(CURVE* curve, const double* vel)
                 {
                     sl->vel[j] = vel[j];
                     sl->collsnImpulse[j] = 0.0;
+                    sl->collsnImpulse_RG[j] = 0.0;
                     sl->friction[j] = 0.0;
                     sl->collsn_num = 0;
+                    sl->collsn_num_RG = 0;
                     sl->x_old[j] = Coords(p[i])[j];
                 }	
 	    }

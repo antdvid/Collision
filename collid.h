@@ -126,6 +126,7 @@ private:
 	static double s_m;
 	static double s_k;
 	static double s_lambda;
+	static double s_cr;
 	double Boundary[3][2]; //domain boundary[dir][side]
 	static void turnOffImpZone();
 	static void turnOnImpZone();
@@ -171,6 +172,8 @@ public:
 	static double getFrictionConstant();
 	static void setPointMass(double);
 	static double getPointMass();
+	static void setRestitutionCoef(double);
+	static double getRestitutionCoef();
 	static bool getImpZoneStatus();	
 	virtual ~CollisionSolver(){} //virtual destructor
 	//pure virtual functions
@@ -271,5 +274,8 @@ bool isStaticRigidBody(const POINT*);
 bool isStaticRigidBody(const CD_HSE*);
 bool isMovableRigidBody(const POINT*);
 bool isMovableRigidBody(const CD_HSE*);
+bool isRigidBody(const POINT*);
+bool isRigidBody(const CD_HSE*);
+extern void SpreadImpactZoneImpulse(POINT*, double, double*);
 
 void vtkplotVectorSurface(std::vector<CD_HSE*>&,const char*);

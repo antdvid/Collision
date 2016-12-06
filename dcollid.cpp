@@ -30,6 +30,7 @@ double CollisionSolver::s_dt = DT;
 double CollisionSolver::s_k = 1000;
 double CollisionSolver::s_m = 0.01;
 double CollisionSolver::s_lambda = 0.02;
+double CollisionSolver::s_cr = 0.0;
 int traitsForProximity::m_dim = 3;
 int traitsForCollision::m_dim = 3;
 double traitsForProximity::s_eps = EPS;	
@@ -80,6 +81,10 @@ double CollisionSolver::getFrictionConstant(){return s_lambda;}
 //set mass of fabric point
 void   CollisionSolver::setPointMass(double new_m){s_m = new_m;}
 double CollisionSolver::getPointMass(){return s_m;}
+
+//set restitution coefficient between rigid bodies
+void   CollisionSolver::setRestitutionCoef(double new_cr){s_cr = new_cr;}
+double CollisionSolver::getRestitutionCoef(){return s_cr;}
 
 void CollisionSolver::recordOriginPosition(){
 	POINT* pt;
@@ -410,7 +415,7 @@ bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
 	for (unsigned i = 0; i < hseList.size(); ++i){
 	    CD_HSE* hse = hseList[i];
 	    int np = hse->num_pts();
-	    if (isStaticRigidBody(hse) || isMovableRigidBody(hse)) continue;
+	    if (isRigidBody(hse)) continue;
 	    for (int j = 0; j < ((np == 2) ? 1 : np); ++j){
 		POINT* p[2];
 		STATE* sl[2];
@@ -607,6 +612,15 @@ void CollisionSolver::updateAverageVelocity()
 		    }
 		    sl->collsn_num = 0;
 		}
+		/* test for RG */
+		if (sl->collsn_num_RG > 0)
+		{
+		    sl->has_collsn = true;
+		    for (int k = 0; k < 3; ++k)
+			sl->avgVel[k] += sl->collsnImpulse_RG[k]/
+							sl->collsn_num_RG;
+		    sl->collsn_num_RG = 0;
+		}
 
 		//printf("after: avgVel = [%f %f %f]\n\n",sl->avgVel[0],sl->avgVel[1],sl->avgVel[2]);
 		if (debugging("collision")){
@@ -636,8 +650,7 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if ((t1->surf == t2->surf) && 
-		(isStaticRigidBody(a) || isMovableRigidBody(a)))
+	    if ((t1->surf == t2->surf) && isRigidBody(a))
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
@@ -680,8 +693,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if ((t1->surf == t2->surf) && 
-		(isStaticRigidBody(a) || isMovableRigidBody(a)))
+	    if ((t1->surf == t2->surf) && isRigidBody(a))
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
@@ -967,4 +979,28 @@ bool isMovableRigidBody(const CD_HSE* hse){
         if (isMovableRigidBody(hse->Point_of_hse(i)))
             return true;
     return false;
+}
+
+bool isRigidBody(const POINT* p){
+    return isStaticRigidBody(p) || isMovableRigidBody(p);
+}
+
+bool isRigidBody(const CD_HSE* hse){
+    return isStaticRigidBody(hse) || isMovableRigidBody(hse);
+}
+
+extern void SpreadImpactZoneImpulse(
+        POINT* p,
+        double impulse,
+        double* nor)
+{
+        POINT* root = findSet(p);
+        while (root)
+        {
+            STATE *sl = (STATE*)left_state(root);
+            for (int i = 0; i < 3; ++i)
+                sl->collsnImpulse_RG[i] += impulse * nor[i];
+            sl->collsn_num_RG += 1;
+            root = next_pt(root);
+        }
 }
