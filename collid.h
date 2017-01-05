@@ -3,6 +3,7 @@
 #include <FronTier.h>
 #include "../iFluid/ifluid_state.h"
 #include <functional>
+#include <unordered_map>
 #if defined(isnan)
 #undef isnan
 #endif
@@ -143,6 +144,7 @@ private:
 	void detectProximity();
 	void detectCollision();
 	void detectDomainBoundaryCollision();
+	void updateFinalForRG();
 
 	virtual void updateImpactListVelocity(POINT*) = 0;
 	virtual bool BondToBond(const BOND*,const BOND*,double) = 0;
@@ -155,6 +157,7 @@ private:
 protected:
 	int m_dim;
 	std::vector<CD_HSE*> hseList;
+	std::unordered_map< int, std::vector<double> > mrg_com;
 	static bool s_detImpZone;
 	void clearHseList();
 public:

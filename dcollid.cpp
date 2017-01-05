@@ -89,8 +89,6 @@ double CollisionSolver::getRestitutionCoef(){return s_cr;}
 void CollisionSolver::recordOriginPosition(){
 	POINT* pt;
 	STATE* sl;
-	start_clock("recordOriginPosition");
-
 	//#pragma omp parallel for private(pt,sl)
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
 	     it < hseList.end(); ++it){
@@ -104,7 +102,6 @@ void CollisionSolver::recordOriginPosition(){
 		if (isnan(sl->x_old[0])) std::cout<<"nan_x_old"<<std::endl;
 	    }
 	}
-	stop_clock("recordOriginPosition");
 }
 
 void CollisionSolver::setDomainBoundary(double* L, double* U) {
@@ -528,7 +525,6 @@ void CollisionSolver::updateFinalVelocity()
 	POINT* pt;
 	STATE* sl;
 	double dt = getTimeStepSize();
-	std::vector<HYPER_SURF*> mrg;
 	//#pragma omp parallel for private(pt,sl)
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
              it < hseList.end(); ++it)
@@ -538,22 +534,48 @@ void CollisionSolver::updateFinalVelocity()
                 sl = (STATE*)left_state(pt);
 		if (!sl->has_collsn) 
 		    continue;
-		if (isMovableRigidBody(pt) && 
-		    std::find(mrg.begin(), mrg.end(), pt->hs) == mrg.end())
-		{
-		    mrg.push_back(pt->hs);
-		    for (int j = 0; j < 3; ++j)
-		    {
-			center_of_mass_velo(pt->hs)[j] = sl->avgVel[j];
-			center_of_mass(pt->hs)[j] = sl->avgVel[j] * dt + 
-						old_center_of_mass(pt->hs)[j];
-		    }
-		}
                 for (int j = 0; j < 3; ++j){
                     pt->vel[j] = sl->avgVel[j];
                     sl->vel[j] = sl->avgVel[j];
 		    if (isnan(pt->vel[j]))
 			printf("nan vel and avgVel\n");
+		}
+            }
+        }
+	updateFinalForRG();
+}
+
+void CollisionSolver::updateFinalForRG()
+{
+	POINT* pt;
+        STATE* sl;
+        double dt = getTimeStepSize();
+	std::vector<int> mrg;
+
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+             it < hseList.end(); ++it)
+        {
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+                pt = (*it)->Point_of_hse(i);
+                sl = (STATE*)left_state(pt);
+                if (!isMovableRigidBody(pt)) continue;
+		int rg_index = body_index(pt->hs);
+                if (sl->has_collsn && 
+		    std::find(mrg.begin(), mrg.end(), rg_index) == mrg.end())
+                {
+                    mrg.push_back(rg_index); 
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        center_of_mass_velo(pt->hs)[j] = sl->avgVel[j];
+                        center_of_mass(pt->hs)[j] = sl->avgVel[j] * dt + 
+                                                (mrg_com[rg_index])[j];
+                    }
+		    mrg_com.erase(rg_index);
+                }
+		if (mrg_com.count(rg_index) == 0)
+		{
+		    double* com = center_of_mass(pt->hs);
+		    mrg_com[rg_index] = std::vector<double>(com, com+3);
 		}
             }
         }
