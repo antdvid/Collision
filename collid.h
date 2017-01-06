@@ -3,6 +3,7 @@
 #include <FronTier.h>
 #include "../iFluid/ifluid_state.h"
 #include <functional>
+#include <unordered_map>
 #if defined(isnan)
 #undef isnan
 #endif
@@ -126,6 +127,7 @@ private:
 	static double s_m;
 	static double s_k;
 	static double s_lambda;
+	static double s_cr;
 	bool has_collision;
 	double Boundary[3][2]; //domain boundary[dir][side]
 	static void turnOffImpZone();
@@ -138,10 +140,12 @@ private:
 	void updateAverageVelocity();
 	void computeImpactZone();
 	void updateImpactZoneVelocity(int&);
+	void updateImpactZoneVelocityForRG();
 	void setTraitsDimension();
 	void detectProximity();
 	void detectCollision();
 	void detectDomainBoundaryCollision();
+	void updateFinalForRG();
 	void setHasCollision(bool judge) {has_collision = judge;}
 
 	virtual void updateImpactListVelocity(POINT*) = 0;
@@ -155,6 +159,7 @@ private:
 protected:
 	int m_dim;
 	std::vector<CD_HSE*> hseList;
+	std::unordered_map< int, std::vector<double> > mrg_com;
 	static bool s_detImpZone;
 	void clearHseList();
 public:
@@ -172,10 +177,13 @@ public:
 	static double getFrictionConstant();
 	static void setPointMass(double);
 	static double getPointMass();
+	static void setRestitutionCoef(double);
+	static double getRestitutionCoef();
 	static bool getImpZoneStatus();	
 	virtual ~CollisionSolver(){} //virtual destructor
 	//pure virtual functions
 	virtual void assembleFromInterface(const INTERFACE*,double dt) = 0;
+	virtual void createImpZoneForRG(const INTERFACE*) = 0;
 	bool isProximity(const CD_HSE*,const CD_HSE*);	
 	bool isCollision(const CD_HSE*,const CD_HSE*);
 	void resolveCollision();
@@ -203,6 +211,7 @@ private:
 public:
 	CollisionSolver2d():CollisionSolver(2){}
 	void assembleFromInterface(const INTERFACE*,double dt);
+	void createImpZoneForRG(const INTERFACE*);
 };
 
 //derived 3D-class for collision detection and handling
@@ -219,6 +228,7 @@ private:
 public:
 	CollisionSolver3d():CollisionSolver(3){}
 	void assembleFromInterface(const INTERFACE*,double dt);
+	void createImpZoneForRG(const INTERFACE*);
 };
 
 //callback functor to identify real collision
@@ -261,11 +271,17 @@ void minusVec(double* v1, double* v2, double* ans);
 double myDet3d(double[][3]);
 double distBetweenCoords(double* v1, double* v2);
 extern void printPointList(POINT**, const int);
-extern void createImpZone(POINT*[],int);
+extern void createImpZone(POINT*[],int num = 4,bool first = NO);
+extern void makeSet(std::vector<CD_HSE*>&);
 void unsortHseList(std::vector<CD_HSE*>&);
 POINT*& next_pt(POINT*);
 int& weight(POINT*);
+bool isStaticRigidBody(const POINT*);
+bool isStaticRigidBody(const CD_HSE*);
+bool isMovableRigidBody(const POINT*);
+bool isMovableRigidBody(const CD_HSE*);
 bool isRigidBody(const POINT*);
 bool isRigidBody(const CD_HSE*);
+extern void SpreadImpactZoneImpulse(POINT*, double, double*);
 
 void vtkplotVectorSurface(std::vector<CD_HSE*>&,const char*);

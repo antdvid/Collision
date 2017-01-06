@@ -12,7 +12,7 @@ VTK_INCL=
 #VTK_LIB=/usr/lib/x86_64-linux-gnu/libvtk*.so
 #VTK_INCL=/usr/include/vtk-6.0
 
-incs =   -I/usr/local/pkg/mpich2/include -D__MPI__  -I/usr/local/pkg/hdf/include $(USE_VTK) -DUSE_HDF   -D__HYPRE__ -I../include 
+incs =   -I/usr/local/pkg/mpich2/include -D__MPI__  -I/usr/local/pkg/hdf/include $(USE_VTK) -DUSE_HDF   -D__HYPRE__ -I../include  -D__COLLISION__
 libincs =  -L/usr/lib -L/usr/lib -L/usr/local/pkg/hdf/lib  -L/usr/local/pkg/mpich2/lib -L../lib/x86_64
 libs = -lgd -lmfhdf -ldf -ljpeg -lz  -lmpich -lpthread $(VTK_LIB)
 

@@ -41,11 +41,29 @@ void CollisionSolver3d::assembleFromInterface(
 		n_bond++;
 	    }
 	}
+	makeSet(hseList);
+	createImpZoneForRG(intfc);
 	setDomainBoundary(intfc->table->rect_grid.L,
 			  intfc->table->rect_grid.U);
 	if (debugging("collision")){
 	    printf("%d num of tris, %d num of bonds\n",n_tri,n_bond);
 	    printf("%lu number of elements is assembled\n",hseList.size());
+	}
+}
+
+void CollisionSolver3d::createImpZoneForRG(const INTERFACE* intfc)
+{	// test function for creating impact zone for each movable RG
+	SURFACE** s;
+	TRI* tri;
+
+	intfc_surface_loop(intfc, s)
+	{
+	    if (is_bdry(*s)) continue;
+	    if (!isMovableRigidBody(Point_of_tri(first_tri(*s))[0])) continue;
+	    surf_tri_loop(*s, tri)
+	    {
+		createImpZone(Point_of_tri(tri), 3, YES);
+	    }
 	}
 }
 
@@ -123,7 +141,7 @@ void CollisionSolver3d::updateImpactListVelocity(POINT* head){
 	double dt = getTimeStepSize();
 	p = head;
         while(p){
-	    if (isRigidBody(p)) {
+	    if (isStaticRigidBody(p)) {
 		p = next_pt(p);
 		continue;
 	    }
@@ -644,7 +662,7 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	Cross3d(x21,x43,tmp);
 	if (Mag3d(tmp) < ROUND_EPS)
 	{
-	    return false;
+	    return false; //ignore the case where two edges are parallel
 	    //degenerate cases to parallel line segments
 	    if (Mag3d(x21) > ROUND_EPS || Mag3d(x43) > ROUND_EPS){
 	    	POINT* plist[3];
@@ -710,7 +728,7 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	    addVec(Coords(pts[2]),v2,v2);
 	    minusVec(v2,v1,nor);
 	    nor_mag = Mag3d(nor);
-	    if (nor_mag < MACH_EPS)
+	    if (nor_mag < 1000 * MACH_EPS)
 	    {
 		//v1 == v2;
                 //two edges intersect with each other
@@ -788,8 +806,8 @@ static bool PointToTri(POINT** pts, double h, double root)
 	Pts2Vec(pts[3],pts[2],x43);
 	
 	det = Dot3d(x13,x13)*Dot3d(x23,x23)-Dot3d(x13,x23)*Dot3d(x13,x23);
-	if (fabs(det) < 1000*MACH_EPS){
-	    return false;
+	if (fabs(det) < 1000 * MACH_EPS){ // change ROUND_EPS to 1000*MACH_EPS
+	    return false; // ignore cases where tri reduces to a line or point
 	    /*consider the case when det = 0*/
 	    /*x13 and x23 are collinear*/
 	    POINT* tmp_pts[3]; 
@@ -832,7 +850,7 @@ static bool PointToTri(POINT** pts, double h, double root)
 		minusVec(Coords(pts[3]),v,nor);
 		dist = Mag3d(nor);
 		//define nor vec if dist == 0
-		if (dist < ROUND_EPS)
+		if (Mag3d(nor) < ROUND_EPS)
 		    nor[0] = nor[1] = nor[2] = 1.0;
 	    }
 	}
@@ -861,10 +879,33 @@ static bool PointToTri(POINT** pts, double h, double root)
 	    w[2] = 1 - w[0] - w[1];
 	    
 	}
+	/* test for corner cases */
+	if (fabs(w[0]) < ROUND_EPS || fabs(w[1]) < ROUND_EPS 
+	    || fabs(w[2]) < ROUND_EPS)
+	{
+	    double vec[3] = {0, 0, 0};
+	    STATE* tmp_sl = (STATE*)left_state(pts[3]);
+	    for (int j = 0; j < 3; ++j)
+		vec[j] = tmp_sl->x_old[j];
+	    for (int i = 0; i < 3; ++i)
+	    {
+		tmp_sl = (STATE*)left_state(pts[i]);
+		for (int j = 0; j < 3; ++j)
+		    vec[j] -= w[i] * tmp_sl->x_old[j];
+	    }
+	    double vec_mag = Mag3d(vec);
+	    if (vec_mag > ROUND_EPS)
+	    {
+		for (int j = 0; j < 3; ++j)
+		    nor[j] = vec[j];
+	    }
+	}
+	/* end of the test */
+	
 	nor_mag = Mag3d(nor);
 	if (nor_mag > ROUND_EPS)
-	for (int i = 0; i < 3; ++i)
-	    nor[i] /= nor_mag;
+	    for (int i = 0; i < 3; ++i)
+	        nor[i] /= nor_mag;
 	else{
 	    std::cout << "nan nor vec" << std::endl;
 	    printPointList(pts,4);
@@ -902,13 +943,15 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 
 	double v_rel[3] = {0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k, m, lambda, dt, h, sum_w = 0.0;
+	double k, m, lambda, dt, h, cr, sum_w = 0.0;
 	k      = CollisionSolver::getSpringConstant();
 	m      = CollisionSolver::getPointMass();
 	dt     = CollisionSolver::getTimeStepSize();
 	lambda = CollisionSolver::getFrictionConstant(); 
 	h      = CollisionSolver::getFabricThickness();
+	cr     = CollisionSolver::getRestitutionCoef();
 	dist   = h - dist;
+	double rigid_impulse[2] = {0.0};
 
 	/* it is supposed to use the average velocity*/
 	for (int i = 0; i < 3; ++i)
@@ -924,16 +967,41 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    vt = 0.0;
 	if (vn < 0)
 	{
-	    if (isRigidBody(pts[3]) ||
-	       (isRigidBody(pts[0]) && isRigidBody(pts[1]) &&
-		isRigidBody(pts[2]))){
+	    if (isStaticRigidBody(pts[3]) ||
+	       (isStaticRigidBody(pts[0]) && isStaticRigidBody(pts[1]) &&
+		isStaticRigidBody(pts[2]))){
 		impulse = vn;
+		rigid_impulse[0] = vn;
+		rigid_impulse[1] = vn;
+	    }
+	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1]) 
+		&& isMovableRigidBody(pts[2]) && isMovableRigidBody(pts[3]))
+	    {
+		double m1 = total_mass(pts[0]->hs);
+		double m2 = total_mass(pts[3]->hs);
+		rigid_impulse[0] = vn * m2 / (m1 + m2);
+		rigid_impulse[1] = vn * m1 / (m1 + m2);
+	    }
+	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1])
+		&& isMovableRigidBody(pts[2]))
+	    {
+		double m1 = total_mass(pts[0]->hs);
+		double m2 = m * 790; // mass of the whole fabric
+		rigid_impulse[0] = vn * m2 / (m1 + m2);
+		impulse = vn * m1 / (m1 + m2);
+	    }
+	    else if (isMovableRigidBody(pts[3]))
+	    {
+		double m1 = m * 790; // mass of the whole fabric
+		double m2 = total_mass(pts[3]->hs);
+		impulse = vn * m2 / (m1 + m2); 
+		rigid_impulse[1] = vn * m1 / (m1 + m2);
 	    }
 	    else
 	        impulse = vn * 0.5;
 	    for (int i = 0; i < 3; ++i)
 	    {
-		if (isRigidBody(pts[i]))
+		if (isStaticRigidBody(pts[i]))
 		        w[i] = 0.0;
 		sum_w += w[i];
 	    }
@@ -941,8 +1009,21 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	        scalarMult(1.0/sum_w,w,w);
 	}
 	if (vn * dt < 0.1 * dist)
-	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
-
+	{
+	    if (isRigidBody(pts[0]) && isRigidBody(pts[1]) &&
+		isRigidBody(pts[2]) && isRigidBody(pts[3]))
+	    {
+		rigid_impulse[0] *= 1.0 + cr;
+		rigid_impulse[1] *= 1.0 + cr;
+	    }
+	    else
+	    {
+		double tmp = - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
+		impulse += tmp;
+		rigid_impulse[0] += tmp;
+		rigid_impulse[1] += tmp;
+	    }
+	}
 	if (fabs(sum_w) < MACH_EPS)
 	    m_impulse = impulse;
 	else
@@ -974,28 +1055,45 @@ if (fabs(m_impulse) > 0.0){
 	    printf("%f %f %f\n",sl1->avgVel[0],sl1->avgVel[1],sl1->avgVel[2]);
 	}
 }
+
+	if (isRigidBody(pts[0]) && isRigidBody(pts[1]) && 
+	    isRigidBody(pts[2]) && isRigidBody(pts[3]))
+	{
+	    if (isMovableRigidBody(pts[0]))
+		SpreadImpactZoneImpulse(pts[0], rigid_impulse[0], nor);
+	    if (isMovableRigidBody(pts[3]))
+		SpreadImpactZoneImpulse(pts[3], -1.0 * rigid_impulse[1], nor);
+	    return;
+	}
 	for (int i = 0; i < 3; ++i)
 	{
+	    if (isStaticRigidBody(pts[i])) continue;
+	    double t_impulse = m_impulse;
+	    if (isMovableRigidBody(pts[i])) t_impulse = rigid_impulse[0];
 	    for(int j = 0; j < 3; ++j)
 	    {
-		sl[i]->collsnImpulse[j] += w[i] * m_impulse * nor[j];
-		if (fabs(vt) > ROUND_EPS)
-		    sl[i]->friction[j] += std::max(-fabs(lambda * w[i] * 
-			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	        sl[i]->collsnImpulse[j] += w[i] * t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[i]->friction[j] += std::max(-fabs(lambda * w[i] * 
+	    	    t_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
 	    }
 	    sl[i]->collsn_num += 1;
 	}
-	for (int j = 0; j < 3; ++j)
+	if (!isStaticRigidBody(pts[3]))
 	{
-	    sl[3]->collsnImpulse[j] -= m_impulse * nor[j];
-	    if (fabs(vt) > ROUND_EPS)
-	        sl[3]->friction[j] += std::max(-fabs(lambda * 
-			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    double t_impulse = m_impulse;
+	    if (isMovableRigidBody(pts[3])) t_impulse = rigid_impulse[1];
+	    for (int j = 0; j < 3; ++j)
+	    {
+	        sl[3]->collsnImpulse[j] -= t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[3]->friction[j] += std::max(-fabs(lambda * 
+			    t_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    }
+	    sl[3]->collsn_num += 1;
 	}
-	sl[3]->collsn_num += 1;
-
 	for (int j = 0; j < 4; ++j)
-	     if(isRigidBody(pts[j])) 
+	     if(isStaticRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
 
 	if (debugging("CollisionImpulse"))
@@ -1034,13 +1132,16 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	double v_rel[3] = {0.0, 0.0, 0.0}, vn = 0.0, vt = 0.0;
 	double impulse = 0.0, m_impulse = 0.0;
-	double k, m, lambda, dt, h;
+	double k, m, lambda, dt, h, cr;
 	k      = CollisionSolver::getSpringConstant();
 	m      = CollisionSolver::getPointMass();
 	dt     = CollisionSolver::getTimeStepSize();
 	lambda = CollisionSolver::getFrictionConstant(); 
 	h      = CollisionSolver::getFabricThickness();
+	cr     = CollisionSolver::getRestitutionCoef();
 	dist   = h - dist;
+	double rigid_impulse[2] = {0.0};
+	double wa[2] = {1.0 - a, a}, wb[2] = {1.0 - b, b};
 
 	/* it is supposed to use the average velocity*/
 	for (int j = 0; j < 3; ++j)
@@ -1056,19 +1157,63 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 
 	if (vn < 0.0)
 	{
-	    if ((isRigidBody(pts[0]) && isRigidBody(pts[1])) ||
-	    	(isRigidBody(pts[2]) && isRigidBody(pts[3])))
-		impulse += vn;
+	    if ((isStaticRigidBody(pts[0]) && isStaticRigidBody(pts[1])) ||
+	    	(isStaticRigidBody(pts[2]) && isStaticRigidBody(pts[3])))
+	    {
+		impulse = vn;
+		rigid_impulse[0] = vn;
+		rigid_impulse[1] = vn;
+	    }
+	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1]) 
+		&& isMovableRigidBody(pts[2]) && isMovableRigidBody(pts[3]))
+	    {
+		double m1 = total_mass(pts[0]->hs);
+		double m2 = total_mass(pts[2]->hs);
+		rigid_impulse[0] = vn * m2 / (m1 + m2);
+		rigid_impulse[1] = vn * m1 / (m1 + m2);
+	    }
+	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1]))
+	    {
+		double m1 = total_mass(pts[0]->hs);
+		double m2 = m * 790; // mass of the whole fabric
+		rigid_impulse[0] = vn * m2 / (m1 + m2);
+		impulse = vn * m1 / (m1 + m2); 
+	    }
+	    else if (isMovableRigidBody(pts[2]) && isMovableRigidBody(pts[3]))
+	    {
+		double m1 = m * 790; // mass of the whole fabric
+		double m2 = total_mass(pts[2]->hs);
+		impulse = vn * m2 / (m1 + m2); 
+		rigid_impulse[1] = vn * m1 / (m1 + m2);
+	    }
 	    else
-		impulse += vn * 0.5;
-    	    if (isRigidBody(pts[0])) a = 1.0;
-	    if (isRigidBody(pts[1])) a = 0.0;
-	    if (isRigidBody(pts[2])) b = 1.0;
-	    if (isRigidBody(pts[3])) b = 0.0;
+		impulse = vn * 0.5;
+    	    if (isStaticRigidBody(pts[0])) wa[0] = 0.0;
+	    if (isStaticRigidBody(pts[1])) wa[1] = 0.0;
+	    if (isStaticRigidBody(pts[2])) wb[0] = 0.0;
+	    if (isStaticRigidBody(pts[3])) wb[1] = 0.0;
 	}
 	if (vn * dt < 0.1 * dist)
-	    impulse += - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
-	m_impulse = 2.0 * impulse / (a*a + (1.0-a)*(1.0-a) + b*b + (1.0-b)*(1.0-b));
+	{
+	    if (isRigidBody(pts[0]) && isRigidBody(pts[1]) &&
+		isRigidBody(pts[2]) && isRigidBody(pts[3]))
+	    {
+		rigid_impulse[0] *= 1.0 + cr;
+		rigid_impulse[1] *= 1.0 + cr;
+	    }
+	    else
+	    {
+		double tmp = - std::min(dt*k*dist/m, (0.1*dist/dt - vn));
+		impulse += tmp;
+		rigid_impulse[0] += tmp;
+		rigid_impulse[1] += tmp;
+	    }
+	}
+	if (wa[0] + wa[1] < MACH_EPS || wb[0] + wb[1] < MACH_EPS)
+	    m_impulse = impulse;
+	else
+	    m_impulse = 2.0 * impulse / (wa[0]*wa[0] + wa[1]*wa[1] 
+					+ wb[0]*wb[0] + wb[1]*wb[1]);
 
 //uncomment the following for the debugging purpose
 if (debugging("CollisionImpulse"))
@@ -1097,39 +1242,68 @@ if (fabs(m_impulse) > 0){
 	printf("\n");
 }
 
-	/* it is supposed to modify the average velocity*/
+	if (isRigidBody(pts[0]) && isRigidBody(pts[1]) && 
+	    isRigidBody(pts[2]) && isRigidBody(pts[3]))
+	{
+	    if (isMovableRigidBody(pts[0]))
+		SpreadImpactZoneImpulse(pts[0], rigid_impulse[0], nor);
+	    if (isMovableRigidBody(pts[2]))
+		SpreadImpactZoneImpulse(pts[2], -1.0 * rigid_impulse[1], nor);
+	    return;
+	}
 	for (int j = 0; j < 3; ++j)
 	{
 	    //p[0]
-	    sl[0]->collsnImpulse[j] += (1.0 - a) * m_impulse * nor[j];
-	    if (fabs(vt) > ROUND_EPS)
-	        sl[0]->friction[j] += std::max(-fabs(lambda * (1.0-a) *
-			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    if (!isStaticRigidBody(pts[0]))
+	    {
+		double t_impulse = m_impulse;
+		if (isMovableRigidBody(pts[0])) t_impulse = rigid_impulse[0];
+	        sl[0]->collsnImpulse[j] += wa[0] * t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[0]->friction[j] += std::max(-fabs(lambda * wa[0] *
+			    t_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+		if (j == 0) sl[0]->collsn_num += 1;
+	    }
 
 	    //p[1]
-	    sl[1]->collsnImpulse[j] += a * m_impulse * nor[j];
-	    if (fabs(vt) > ROUND_EPS)
-	        sl[1]->friction[j] += std::max(-fabs(lambda * a * 
-			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    if (!isStaticRigidBody(pts[1]))
+	    {
+		double t_impulse = m_impulse;
+		if (isMovableRigidBody(pts[1])) t_impulse = rigid_impulse[0];
+	        sl[1]->collsnImpulse[j] += wa[1] * t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[1]->friction[j] += std::max(-fabs(lambda * wa[1] * 
+			    t_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+		if (j == 0) sl[1]->collsn_num += 1;
+	    }
 
 	    //p[2]
-	    sl[2]->collsnImpulse[j] -= (1.0 - b) * m_impulse * nor[j];
-	    if (fabs(vt) > ROUND_EPS)
-	        sl[2]->friction[j] += std::max(-fabs(lambda * (1.0 - b) *
-			m_impulse/vt), -1.0)*(v_rel[j] - vn * nor[j]);
+	    if (!isStaticRigidBody(pts[2]))
+	    {
+		double t_impulse = m_impulse;
+		if (isMovableRigidBody(pts[2])) t_impulse = rigid_impulse[1];
+	        sl[2]->collsnImpulse[j] -= wb[0] * t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[2]->friction[j] += std::max(-fabs(lambda * wb[0] *
+			    t_impulse/vt), -1.0)*(v_rel[j] - vn * nor[j]);
+		if (j == 0) sl[2]->collsn_num += 1;
+	    }
 
 	    //p[3]
-	    sl[3]->collsnImpulse[j] -= b * m_impulse * nor[j];
-	    if (fabs(vt) > ROUND_EPS)
-	        sl[3]->friction[j] += std::max(-fabs(lambda * b * 
-			m_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+	    if (!isStaticRigidBody(pts[3]))
+	    {
+		double t_impulse = m_impulse;
+		if (isMovableRigidBody(pts[3])) t_impulse = rigid_impulse[1];
+	        sl[3]->collsnImpulse[j] -= wb[1] * t_impulse * nor[j];
+	        if (fabs(vt) > ROUND_EPS)
+	            sl[3]->friction[j] += std::max(-fabs(lambda * wb[1] * 
+			    t_impulse/vt), -1.0) * (v_rel[j] - vn * nor[j]);
+		if (j == 0) sl[3]->collsn_num += 1;
+	    }
 	}
 	for (int j = 0; j < 4; ++j)
-	{
-	     if(isRigidBody(pts[j])) 
+	     if(isStaticRigidBody(pts[j])) 
 		memset((void*)sl[j]->collsnImpulse,0,3*sizeof(double));
-	     sl[j]->collsn_num += 1;
-	}
 
 	for (int i = 0; i < 4; i++)
 	for (int j = 0; j < 3; ++j){
@@ -1160,3 +1334,4 @@ static void unsort_surface_point(SURFACE *surf)
             }
         }
 }       /* end unsort_surface_point */
+

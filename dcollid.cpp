@@ -11,7 +11,7 @@
 #include <omp.h>
 
 /*****declaration of static functions starts here********/
-static void makeSet(std::vector<CD_HSE*>&);
+//static void makeSet(std::vector<CD_HSE*>&);
 static POINT* findSet(POINT*);
 static void mergePoint(POINT*,POINT*);
 inline POINT*& root(POINT*);
@@ -30,6 +30,7 @@ double CollisionSolver::s_dt = DT;
 double CollisionSolver::s_k = 1000;
 double CollisionSolver::s_m = 0.01;
 double CollisionSolver::s_lambda = 0.02;
+double CollisionSolver::s_cr = 0.0;
 int traitsForProximity::m_dim = 3;
 int traitsForCollision::m_dim = 3;
 double traitsForProximity::s_eps = EPS;	
@@ -81,24 +82,26 @@ double CollisionSolver::getFrictionConstant(){return s_lambda;}
 void   CollisionSolver::setPointMass(double new_m){s_m = new_m;}
 double CollisionSolver::getPointMass(){return s_m;}
 
+//set restitution coefficient between rigid bodies
+void   CollisionSolver::setRestitutionCoef(double new_cr){s_cr = new_cr;}
+double CollisionSolver::getRestitutionCoef(){return s_cr;}
+
 void CollisionSolver::recordOriginPosition(){
 	POINT* pt;
 	STATE* sl;
-	start_clock("recordOriginPosition");
-
 	//#pragma omp parallel for private(pt,sl)
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
 	     it < hseList.end(); ++it){
 	    for (int i = 0; i < (*it)->num_pts(); ++i){
 		pt = (*it)->Point_of_hse(i);
 		sl = (STATE*)left_state(pt); 
+		sl->has_collsn = false;
+		if (isMovableRigidBody(pt)) continue;
 		for (int j = 0; j < 3; ++j)
 		    sl->x_old[j] = Coords(pt)[j];
-		sl->has_collsn = false;
 		if (std::isnan(sl->x_old[0])) std::cout<<"nan_x_old"<<std::endl;
 	    }
 	}
-	stop_clock("recordOriginPosition");
 }
 
 void CollisionSolver::setDomainBoundary(double* L, double* U) {
@@ -115,6 +118,7 @@ void CollisionSolver::detectDomainBoundaryCollision() {
                 it < hseList.end(); ++it) {
 	    for (int i = 0; i < (*it)->num_pts(); ++i) {
 		POINT* pt = (*it)->Point_of_hse(i);
+		if (isMovableRigidBody(pt)) continue;
                 STATE* sl = (STATE*)left_state(pt);
 		double cand_coords[3]; //candidate position
 		//try to modify the average velocity 
@@ -227,7 +231,7 @@ void CollisionSolver::computeImpactZone()
 
         std::cout<<"Starting compute Impact Zone: "<<std::endl;
 	turnOnImpZone();
-	makeSet(hseList);             
+	//makeSet(hseList);
         while(is_collision){
             is_collision = false;
 
@@ -250,6 +254,29 @@ void CollisionSolver::computeImpactZone()
         }
 	turnOffImpZone();
 	return;
+}
+
+void CollisionSolver::updateImpactZoneVelocityForRG()
+{
+	POINT* pt;
+	unsortHseList(hseList);
+
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+	     it < hseList.end(); ++it){
+	    for (int i = 0; i < (*it)->num_pts(); ++i){
+		pt = (*it)->Point_of_hse(i);
+		//skip traversed or isolated pts
+		if (sorted(pt) ||
+		    weight(findSet(pt)) == 1) continue;
+		else if (!isMovableRigidBody(pt))
+		{
+		    sorted(pt) = YES;
+		    continue;
+		}
+		else
+		    updateImpactListVelocity(findSet(pt));
+	    }
+	}	
 }
 
 void CollisionSolver::updateImpactZoneVelocity(int &nZones)
@@ -375,10 +402,17 @@ void CollisionSolver::detectCollision()
 //helper function to detect a collision between 
 //a moving point and a moving triangle
 //or between two moving edges 
-extern void createImpZone(POINT* pts[], int num = 4){
+extern void createImpZone(POINT* pts[], int num, bool first){
 	for (int i = 0; i < num; ++i)
-	for (int j = 0; j < i; ++j)
-	    mergePoint(pts[i],pts[j]); 
+	{
+	    for (int j = 0; j < i; ++j)
+	    {
+	        if ((!first) && (isMovableRigidBody(pts[i]) || 
+				 isMovableRigidBody(pts[j])))
+		    continue;
+		mergePoint(pts[i],pts[j]); 
+	    }
+	}
 }
 
 bool CollisionSolver::reduceSuperelastOnce(int& num_edges)
@@ -500,6 +534,7 @@ void CollisionSolver::updateFinalVelocity()
 	//for simplicity now set v(n+1) = v(n+1/2)
 	POINT* pt;
 	STATE* sl;
+	double dt = getTimeStepSize();
 	//#pragma omp parallel for private(pt,sl)
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
              it < hseList.end(); ++it)
@@ -514,6 +549,43 @@ void CollisionSolver::updateFinalVelocity()
                     sl->vel[j] = sl->avgVel[j];
 		    if (std::isnan(pt->vel[j]))
 			printf("nan vel and avgVel\n");
+		}
+            }
+        }
+	updateFinalForRG();
+}
+
+void CollisionSolver::updateFinalForRG()
+{
+	POINT* pt;
+        STATE* sl;
+        double dt = getTimeStepSize();
+	std::vector<int> mrg;
+
+	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
+             it < hseList.end(); ++it)
+        {
+            for (int i = 0; i < (*it)->num_pts(); ++i){
+                pt = (*it)->Point_of_hse(i);
+                sl = (STATE*)left_state(pt);
+                if (!isMovableRigidBody(pt)) continue;
+		int rg_index = body_index(pt->hs);
+                if (sl->has_collsn && 
+		    std::find(mrg.begin(), mrg.end(), rg_index) == mrg.end())
+                {
+                    mrg.push_back(rg_index); 
+                    for (int j = 0; j < 3; ++j)
+                    {
+                        center_of_mass_velo(pt->hs)[j] = sl->avgVel[j];
+                        center_of_mass(pt->hs)[j] = sl->avgVel[j] * dt + 
+                                                (mrg_com[rg_index])[j];
+                    }
+		    mrg_com.erase(rg_index);
+                }
+		if (mrg_com.count(rg_index) == 0)
+		{
+		    double* com = center_of_mass(pt->hs);
+		    mrg_com[rg_index] = std::vector<double>(com, com+3);
 		}
             }
         }
@@ -546,7 +618,7 @@ void CollisionSolver::updateAverageVelocity()
 	    for (int j = 0; j < np; ++j)
 	    {
 		p = hse->Point_of_hse(j);
-		if (isRigidBody(p)) continue;
+		if (isStaticRigidBody(p)) continue;
 		if (sorted(p)) continue;
 		sl = (STATE*)left_state(p);
 		if (sl->collsn_num > 0)
@@ -567,6 +639,15 @@ void CollisionSolver::updateAverageVelocity()
 		    }
 		    sl->collsn_num = 0;
 		}
+		/* test for RG */
+		if (sl->collsn_num_RG > 0)
+		{
+		    sl->has_collsn = true;
+		    for (int k = 0; k < 3; ++k)
+			sl->avgVel[k] += sl->collsnImpulse_RG[k]/
+							sl->collsn_num_RG;
+		    sl->collsn_num_RG = 0;
+		}
 
 		if (debugging("collision")){
 		    //debugging: print largest speed
@@ -577,6 +658,8 @@ void CollisionSolver::updateAverageVelocity()
 		sorted(p) = YES;
 	    }
 	}
+	if (getTimeStepSize() > 0.0)
+	    updateImpactZoneVelocityForRG(); // test for moving objects
 	if (debugging("collision"))
 	if (maxVel != NULL)
 	    printf("    max velocity = [%f %f %f]\n",maxVel[0],maxVel[1],maxVel[2]);
@@ -593,7 +676,7 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && isRigidBody(a))
+	    if ((t1->surf == t2->surf) && isRigidBody(a))
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
@@ -638,7 +721,7 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	{
 	    TRI* t1 = cd_t1->m_tri;
 	    TRI* t2 = cd_t2->m_tri;
-	    if (t1->surf == t2->surf && isRigidBody(a))
+	    if ((t1->surf == t2->surf) && isRigidBody(a))
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
@@ -850,7 +933,7 @@ inline POINT*& tail(POINT* p){
 	return sl->impZone.tail;
 }
 
-void makeSet(std::vector<CD_HSE*>& hseList){
+extern void makeSet(std::vector<CD_HSE*>& hseList){
 	STATE* sl;
 	POINT* pt;
 	//#pragma omp parallel for private(sl,pt)
@@ -904,14 +987,50 @@ void printPointList(POINT** plist,const int n){
 	}
 }
 
-bool isRigidBody(const POINT* p){
+bool isStaticRigidBody(const POINT* p){
     STATE* sl = (STATE*)left_state(p);
     return sl->is_fixed;
 }
 
-bool isRigidBody(const CD_HSE* hse){
+bool isStaticRigidBody(const CD_HSE* hse){
     for (int i = 0; i < hse->num_pts(); ++i)
-   	if (isRigidBody(hse->Point_of_hse(i)))
+   	if (isStaticRigidBody(hse->Point_of_hse(i)))
 	    return true;
     return false;
+}
+
+bool isMovableRigidBody(const POINT* p){
+    STATE* sl = (STATE*)left_state(p);
+    return sl->is_movableRG;
+}
+
+bool isMovableRigidBody(const CD_HSE* hse){
+    for (int i = 0; i < hse->num_pts(); ++i)
+        if (isMovableRigidBody(hse->Point_of_hse(i)))
+            return true;
+    return false;
+}
+
+bool isRigidBody(const POINT* p){
+    return isStaticRigidBody(p) || isMovableRigidBody(p);
+}
+
+bool isRigidBody(const CD_HSE* hse){
+    return isStaticRigidBody(hse) || isMovableRigidBody(hse);
+}
+
+extern void SpreadImpactZoneImpulse(
+        POINT* p,
+        double impulse,
+        double* nor)
+{
+        POINT* root = findSet(p);
+        while (root)
+        {
+            STATE *sl = (STATE*)left_state(root);
+            for (int i = 0; i < 3; ++i)
+                sl->collsnImpulse_RG[i] += impulse * nor[i];
+            sl->collsn_num_RG += 1;
+            root = next_pt(root);
+        }
 }
