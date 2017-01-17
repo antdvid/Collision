@@ -561,6 +561,7 @@ void CollisionSolver::updateFinalForRG()
         STATE* sl;
         double dt = getTimeStepSize();
 	std::vector<int> mrg;
+	std::unordered_map<int, bool> visited;
 
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
              it < hseList.end(); ++it)
@@ -580,12 +581,26 @@ void CollisionSolver::updateFinalForRG()
                         center_of_mass(pt->hs)[j] = sl->avgVel[j] * dt + 
                                                 (mrg_com[rg_index])[j];
                     }
-		    mrg_com.erase(rg_index);
+		    visited[rg_index] = false;
+		    if (debugging("rigid_body"))
+		    {
+			printf("After collision handling: \n");
+			printf("Body Index: %d\n", rg_index);
+			printf("center_of_mass = %f %f %f\n", 
+				center_of_mass(pt->hs)[0], 
+				center_of_mass(pt->hs)[1], 
+				center_of_mass(pt->hs)[2]);
+			printf("center_of_mass_velo = %f %f %f\n", 
+				center_of_mass_velo(pt->hs)[0], 
+				center_of_mass_velo(pt->hs)[1], 
+				center_of_mass_velo(pt->hs)[2]);
+		    }
                 }
-		if (mrg_com.count(rg_index) == 0)
+		if ((visited.count(rg_index) == 0) || (!visited[rg_index]))
 		{
 		    double* com = center_of_mass(pt->hs);
 		    mrg_com[rg_index] = std::vector<double>(com, com+3);
+		    visited[rg_index] = true;
 		}
             }
         }
@@ -668,7 +683,7 @@ void CollisionSolver::updateAverageVelocity()
 }
 
 bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
-	//const CD_BOND *cd_b1, *cd_b2;
+	const CD_BOND *cd_b1, *cd_b2;
 	const CD_TRI  *cd_t1, *cd_t2;
 	double h = CollisionSolver3d::getRoundingTolerance();
 	if ((cd_t1 = dynamic_cast<const CD_TRI*>(a)) && 
@@ -680,7 +695,6 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 		return false;
 	    return MovingTriToTri(t1,t2,h);
 	}
-/*
 	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
 	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
 	{
@@ -707,12 +721,11 @@ bool CollisionSolver::isCollision(const CD_HSE* a, const CD_HSE* b){
 	    std::cout<<"This case has not been implemented"<<std::endl;
 	    clean_up(ERROR);
 	}
-*/
 	return false;
 }
 
 bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
-	//const CD_BOND *cd_b1, *cd_b2;
+	const CD_BOND *cd_b1, *cd_b2;
 	const CD_TRI  *cd_t1, *cd_t2;
 	double h = CollisionSolver3d::getFabricThickness();
 
@@ -725,7 +738,6 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 		return false;
 	    return TriToTri(t1,t2,h);
 	}
-/*
 	else if ((cd_b1 = dynamic_cast<const CD_BOND*>(a)) && 
 	         (cd_b2 = dynamic_cast<const CD_BOND*>(b)))
 	{
@@ -752,7 +764,6 @@ bool CollisionSolver::isProximity(const CD_HSE* a, const CD_HSE* b){
 	    std::cout<<"This case has not been implemented"<<std::endl;
 	    clean_up(ERROR);
 	}
-*/
 	return false;
 }
 

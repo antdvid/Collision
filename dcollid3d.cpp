@@ -732,26 +732,15 @@ static bool EdgeToEdge(POINT** pts, double h, double root)
 	    {
 		//v1 == v2;
                 //two edges intersect with each other
-                //move back until two edges are untangled
-                STATE* sl[4];
-                const int MAX_ITER = 10;
-                double dt = CollisionSolver::getTimeStepSize();
-                int num_iter = 0;
-                double x_cand[4][3];
-                while (Mag3d(nor) < MACH_EPS && num_iter < MAX_ITER)
-                {
-                    for (int i = 0; i < 4; ++i){
-                        sl[i] = (STATE*)left_state(pts[i]);
-                        for (int j = 0; j < 3; ++j)
-                            x_cand[i][j] = Coords(pts[i])[j]
-                                        - (++num_iter)*dt*sl[i]->avgVel[j];
-                    }
-                    for (int j = 0; j < 3; ++j)
-                    {
-                        nor[j]  = (1.0-b) * x_cand[2][j] + b * x_cand[3][j];
-                        nor[j] -= (1.0-a) * x_cand[0][j] + a * x_cand[1][j];
-                    }
-                }
+                //normal direction is calculated with old position
+		STATE* sl[4];
+		for (int i = 0; i < 4; ++i)
+		    sl[i] = (STATE*)left_state(pts[i]);
+		for (int j = 0; j < 3; ++j)
+		{
+		    nor[j]  = (1.0-b) * sl[2]->x_old[j] + b * sl[3]->x_old[j];
+		    nor[j] -= (1.0-a) * sl[0]->x_old[j] + a * sl[1]->x_old[j];
+		}
 	    }
 	    dist = distBetweenCoords(v1,v2);
 	}
@@ -985,17 +974,13 @@ static void PointToTriImpulse(POINT** pts, double* nor, double* w, double dist, 
 	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1])
 		&& isMovableRigidBody(pts[2]))
 	    {
-		double m1 = total_mass(pts[0]->hs);
-		double m2 = m * 790; // mass of the whole fabric
-		rigid_impulse[0] = vn * m2 / (m1 + m2);
-		impulse = vn * m1 / (m1 + m2);
+		rigid_impulse[0] = 0.5 * vn;
+		impulse = 0.5 * vn;
 	    }
 	    else if (isMovableRigidBody(pts[3]))
 	    {
-		double m1 = m * 790; // mass of the whole fabric
-		double m2 = total_mass(pts[3]->hs);
-		impulse = vn * m2 / (m1 + m2); 
-		rigid_impulse[1] = vn * m1 / (m1 + m2);
+		impulse = 0.5 * vn;
+		rigid_impulse[1] = 0.5 * vn;
 	    }
 	    else
 	        impulse = vn * 0.5;
@@ -1174,17 +1159,13 @@ static void EdgeToEdgeImpulse(POINT** pts, double* nor, double a, double b, doub
 	    }
 	    else if (isMovableRigidBody(pts[0]) && isMovableRigidBody(pts[1]))
 	    {
-		double m1 = total_mass(pts[0]->hs);
-		double m2 = m * 790; // mass of the whole fabric
-		rigid_impulse[0] = vn * m2 / (m1 + m2);
-		impulse = vn * m1 / (m1 + m2); 
+		rigid_impulse[0] = 0.5 * vn;
+		impulse = 0.5 * vn; 
 	    }
 	    else if (isMovableRigidBody(pts[2]) && isMovableRigidBody(pts[3]))
 	    {
-		double m1 = m * 790; // mass of the whole fabric
-		double m2 = total_mass(pts[2]->hs);
-		impulse = vn * m2 / (m1 + m2); 
-		rigid_impulse[1] = vn * m1 / (m1 + m2);
+		impulse = 0.5 * vn;
+		rigid_impulse[1] = 0.5 * vn;
 	    }
 	    else
 		impulse = vn * 0.5;
