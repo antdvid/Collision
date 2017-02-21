@@ -3,7 +3,7 @@
 #include <FronTier.h>
 #include "../iFluid/ifluid_state.h"
 #include <functional>
-#include <unordered_map>
+#include <map>
 #if defined(isnan)
 #undef isnan
 #endif
@@ -159,7 +159,7 @@ private:
 protected:
 	int m_dim;
 	std::vector<CD_HSE*> hseList;
-	std::unordered_map< int, std::vector<double> > mrg_com;
+	std::map< int, std::vector<double> > mrg_com;
 	static bool s_detImpZone;
 	void clearHseList();
 public:

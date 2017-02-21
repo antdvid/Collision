@@ -2,7 +2,7 @@
 #include <fstream>
 #include <sstream>
 #include <string>
-#include <unordered_map>
+#include <map>
 #include "collid.h"
 static CURVE* make3dCurve(Front&,double[][3],int);
 static void initSurface(Front&,char*);
@@ -15,7 +15,7 @@ void initTestModule(Front &front, char* inName)
 	gview_plot_interface("init",front.interf);
 }
 
-std::unordered_map<std::string,int> hashMap({
+std::map<std::string,int> hashMap({
 	{"FIRST_PHYSICS_WAVE_TYPE",FIRST_PHYSICS_WAVE_TYPE},
 	{"MOVABLE_BODY_BOUNDARY",MOVABLE_BODY_BOUNDARY},
 	{"NEUMANN_BOUNDARY",NEUMANN_BOUNDARY},

@@ -561,7 +561,7 @@ void CollisionSolver::updateFinalForRG()
         STATE* sl;
         double dt = getTimeStepSize();
 	std::vector<int> mrg;
-	std::unordered_map<int, bool> visited;
+	std::map<int, bool> visited;
 
 	for (std::vector<CD_HSE*>::iterator it = hseList.begin();
              it < hseList.end(); ++it)
