@@ -2,10 +2,12 @@
 #include <CGAL/box_intersection_d.h>
 #include <CGAL/intersections.h>
 #include <vector>
+#include <iostream>
 #include <fstream>
-#include <math.h>
+#include <cmath>
 #include <algorithm>
 #include <FronTier.h>
+#include "AABB.h"
 #include "collid.h"
 #include "../iFluid/ifluid_state.h"
 #include <omp.h>
@@ -227,7 +229,6 @@ void CollisionSolver::computeImpactZone()
 	bool is_collision = true;
         int numZones = 0;
 	int niter = 0;
-	int cd_pair = 0;
 
         std::cout<<"Starting compute Impact Zone: "<<std::endl;
 	turnOnImpZone();
@@ -239,15 +240,22 @@ void CollisionSolver::computeImpactZone()
 	    //merge four pts if collision happens
 
 	    start_clock("cgal_impactzone");
+            aabbCollision();
+            is_collision = abt_collision->getCollsnState();
+            /*
+            int numBox = 0;
+	    int cd_pair = 0;
+
 	    CGAL::box_self_intersection_d(hseList.begin(),
-                  hseList.end(),reportCollision(is_collision,cd_pair,this),
-                  traitsForCollision());
+                  hseList.end(),reportCollision(numBox, is_collision,
+                    cd_pair,this), traitsForCollision());
+            */
 	    stop_clock("cgal_impactzone");
  
             updateAverageVelocity();
 
 	    updateImpactZoneVelocity(numZones);
-            std::cout <<"    #"<<niter++ << ": " << cd_pair 
+            std::cout <<"    #"<<niter++ << ": " << abt_collision->getCount() 
                       << " pair of collision tris" << std::endl;
 	    std::cout <<"     "<< numZones
 		      <<" zones of impact" << std::endl;
@@ -353,15 +361,70 @@ void CollisionSolver::resolveCollision()
 	stop_clock("updateFinalVelocity");
 }
 
+// function to perform AABB tree building, updating structure
+// and query for proximity detection process
+void CollisionSolver::aabbProximity() {
+    // if first time, build the tree and AABB elements and node
+    if (!abt_proximity) {
+        abt_proximity = new AABBTree;
+        for (auto it = hseList.begin(); it != hseList.end(); it++) {
+             AABB* ab = new AABB (*it, aabb::type::STATIC);
+             abt_proximity->addAABB(ab);
+        }
+        abt_proximity->updatePointMap(hseList);
+        volume = abt_proximity->getVolume();
+    }
+    else {
+        abt_proximity->updateAABBTree(hseList);
+        // if current tree structure don't fit for the current 
+        // surface, update structure of the tree
+        if ((abt_proximity->getVolume() - volume) > 0.2*volume) {
+            abt_proximity->updateTreeStructure();
+            volume = abt_proximity->getVolume();
+        }
+    }
+    // query for collision detection of AABB elements
+    abt_proximity->query(this, aabb::type::STATIC);
+}
+
 void CollisionSolver::detectProximity()
 {
+        /*
 	int num_pairs = 0;
+        int numBox = 0;
+        double time; 
+
 	CGAL::box_self_intersection_d(hseList.begin(),hseList.end(),
-                                     reportProximity(num_pairs,this),
-				     traitsForProximity());
+                             reportProximity(time, numBox, num_pairs,this),
+			     traitsForProximity());
+        */
+        aabbProximity();
 	updateAverageVelocity();
 	if (debugging("collision"))
-	std::cout << num_pairs << " pair of proximity" << std::endl;
+	std::cout << abt_proximity->getCount() 
+                  << " pair of proximity" << std::endl;
+}
+
+// AABB tree for collision detection process
+void CollisionSolver::aabbCollision() {
+    if (!abt_collision) {
+        abt_collision = new AABBTree;
+        for (auto it = hseList.begin(); it != hseList.end(); it++) {
+             AABB* ab = new AABB (*it, aabb::type::MOVING, s_dt);
+             abt_collision->addAABB(ab);
+        }
+        abt_collision->updatePointMap(hseList);
+        volume = abt_collision->getVolume();
+    }
+    else {
+        abt_collision->setTimeStep(s_dt);
+        abt_collision->updateAABBTree(hseList);
+        if ((abt_collision->getVolume() - volume) > 0.2*volume) {
+            abt_collision->updateTreeStructure();
+            volume = abt_collision->getVolume();
+        }
+    }
+    abt_collision->query(this, aabb::type::MOVING);
 }
 
 void CollisionSolver::detectCollision()
@@ -369,7 +432,6 @@ void CollisionSolver::detectCollision()
 	bool is_collision = true; 
 	const int MAX_ITER = 5;
 	int niter = 1;
-	int cd_pair = 0;
 
 	std::cout<<"Starting collision handling: "<<std::endl;
 	//record if has an actual collision
@@ -379,17 +441,23 @@ void CollisionSolver::detectCollision()
 	//
 	while(is_collision){
 	    is_collision = false;
-	    start_clock("cgal_collision");
+            /*
+            int numBox = 0;
+	    int cd_pair = 0;
+   
 	    CGAL::box_self_intersection_d(hseList.begin(),
-		  hseList.end(),reportCollision(is_collision,cd_pair,this),
-		  traitsForCollision());
+		  hseList.end(),reportCollision(numBox, 
+                    is_collision,cd_pair,this), traitsForCollision());
+            */
+	    start_clock("cgal_collision");
+	    aabbCollision();
 	    stop_clock("cgal_collision");
-	
+            is_collision = abt_collision->getCollsnState();
 	    if (cd_count++ == 0 && is_collision) 
 		setHasCollision(true);
 
 	    updateAverageVelocity();
-	    std::cout<<"    #"<<niter << ": " << cd_pair 
+	    std::cout<<"    #"<<niter << ": " << abt_collision->getCount() 
 		     << " pair of collision tris" << std::endl;
 	    if (++niter > MAX_ITER) break;
 	}
