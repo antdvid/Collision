@@ -1,9 +1,14 @@
+#ifndef COLLID_H_
+#define COLLID_H_
+
 #include <CGAL/Simple_cartesian.h>
 #include <CGAL/box_intersection_d.h>
 #include <FronTier.h>
 #include "../iFluid/ifluid_state.h"
 #include <functional>
 #include <map>
+#include <fstream>
+
 #if defined(isnan)
 #undef isnan
 #endif
@@ -117,10 +122,15 @@ struct traitsForCollision{
 	static std::ptrdiff_t id(Box_parameter b) { return (std::ptrdiff_t)(b);}
 };
 
+class AABBTree;
+
 //abstract base class for collision detection and handling
 class CollisionSolver {
 private:
 	//global parameters
+	AABBTree* abt_proximity = nullptr;
+        AABBTree* abt_collision = nullptr;
+        double volume;
 	static double s_eps;
 	static double s_thickness;
 	static double s_dt;
@@ -144,6 +154,8 @@ private:
 	void setTraitsDimension();
 	void detectProximity();
 	void detectCollision();
+        void aabbProximity();
+        void aabbCollision();
 	void detectDomainBoundaryCollision();
 	void updateFinalForRG();
 	void setHasCollision(bool judge) {has_collision = judge;}
@@ -234,27 +246,40 @@ public:
 //callback functor to identify real collision
 struct reportProximity{
     int& num_pairs;
+    // how many pairs of AABBs are collided
+    int& numBox;
+    // record time of nonAABB part
+    double& time;
     CollisionSolver* collsn_solver;
-    reportProximity(int &npair,CollisionSolver* solver): 
-			 	 num_pairs(npair = 0),
-				 collsn_solver(solver){}
+    reportProximity(double& ntime, int& nnumBox, int &npair,
+                CollisionSolver* solver): num_pairs(npair = 0),
+                                          time(ntime),
+                                          numBox(nnumBox),
+				          collsn_solver(solver){}
     void operator()( const CD_HSE* a, const CD_HSE* b) {
+        double start = cpu_seconds();
+
+        numBox++;
 	if(collsn_solver->isProximity(a,b)){
 	    num_pairs++;
 	}
+        time += cpu_seconds()-start;
     }
 };
 
 struct reportCollision{
     bool& is_collision;
-    int&  num_pairs;
+    int& numBox;
+    int& num_pairs;
     CollisionSolver* collsn_solver;
-    reportCollision(bool &status, int &npairs,CollisionSolver* solver): 
-		     is_collision(status), 
-		     num_pairs(npairs = 0), 
-		     collsn_solver(solver){}
+    reportCollision(int& nnumBox, bool &status, int &npairs,
+                    CollisionSolver* solver): is_collision(status), 
+                                              numBox(nnumBox),
+		                              num_pairs(npairs = 0), 
+		                              collsn_solver(solver){}
     void operator()( const CD_HSE* a, const CD_HSE* b) {
 	if (collsn_solver->isCollision(a,b)){
+            numBox++;
 	    num_pairs ++;
 	    is_collision = true;
 	}
@@ -285,3 +310,5 @@ bool isRigidBody(const CD_HSE*);
 extern void SpreadImpactZoneImpulse(POINT*, double, double*);
 
 void vtkplotVectorSurface(std::vector<CD_HSE*>&,const char*);
+
+#endif
