@@ -12,8 +12,8 @@ AABB::AABB(CD_HSE* h, aabb::type type) : hse(h), dt(0), abType(type),
         }
     else
         for (int i = 0; i < 3; i++) {
-             lowerbound[i] = h->min_moving_coord(i, dt);
-             upperbound[i] = h->max_moving_coord(i, dt);
+             lowerbound[i] = h->min_moving_coord(i, dt)-1e-6;
+             upperbound[i] = h->max_moving_coord(i, dt)+1e-6;
         }
     for (int i = 0; i < h->num_pts(); i++)
          indices.push_back(h->Point_of_hse(i)->global_index);
@@ -28,8 +28,8 @@ AABB::AABB(CD_HSE* h, aabb::type type, double t) : hse(h), dt(t),
         }
     else 
         for (int i = 0; i < 3; i++) {
-             lowerbound[i] = h->min_moving_coord(i, dt);
-             upperbound[i] = h->max_moving_coord(i, dt);
+             lowerbound[i] = h->min_moving_coord(i, dt)-1e-6;
+             upperbound[i] = h->max_moving_coord(i, dt)+1e-6;
         }
     for (int i = 0; i < h->num_pts(); i++) 
          indices.push_back(h->Point_of_hse(i)->global_index);
